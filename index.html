@@ -25,6 +25,10 @@
   button { background:#3b5bdb; color:#fff; border:0; border-radius:14px; padding:14px 22px;
     font-size:18px; font-weight:600; }
   button.secondary { background:#343a50; }
+  #viewBar { position:fixed; bottom:calc(100px + env(safe-area-inset-bottom, 0px)); left:16px; right:16px;
+    display:flex; justify-content:center; align-items:center; gap:14px; }
+  #viewBar span { color:#9aa0b8; font-size:14px; }
+  button.round { width:54px; height:54px; padding:0; border-radius:50%; background:#343a50; font-size:24px; line-height:1; }
   button:active { filter:brightness(1.2); }
   .overlay { position:fixed; inset:0; background:rgba(10,11,18,0.92); display:none;
     flex-direction:column; align-items:center; justify-content:center; padding:16px; box-sizing:border-box; }
@@ -41,7 +45,12 @@
 <body>
 <canvas id="c"></canvas>
 <div id="hud"></div>
-<div id="hint">Swipe a square to turn its row · swipe the background to look around</div>
+<div id="hint">Swipe a square to turn its row · swipe empty space or use the arrows to look around</div>
+<div id="viewBar">
+  <button id="viewLeft" class="round" aria-label="Turn the view left">◀</button>
+  <button id="viewFlip" class="round" aria-label="Flip to see the top or bottom">⇅</button>
+  <button id="viewRight" class="round" aria-label="Turn the view right">▶</button>
+</div>
 <div id="bar">
   <button id="startBtn">Start</button>
   <button id="resetBtn" class="secondary" style="display:none">Give up</button>
@@ -342,8 +351,9 @@ canvas.addEventListener('pointerdown', e => {
 canvas.addEventListener('pointermove', e => {
   if (!drag) return;
   if (!drag.cubie) { // orbit the camera
-    camTheta -= (e.clientX - drag.lx) * 0.008;
-    camPhi = Math.min(Math.PI - 0.15, Math.max(0.15, camPhi - (e.clientY - drag.ly) * 0.008));
+    camAnim = null;
+    camTheta -= (e.clientX - drag.lx) * 0.014;
+    camPhi = Math.min(Math.PI - 0.15, Math.max(0.15, camPhi - (e.clientY - drag.ly) * 0.014));
     drag.lx = e.clientX; drag.ly = e.clientY;
     placeCamera();
     return;
@@ -373,9 +383,28 @@ canvas.addEventListener('pointermove', e => {
 
 ['pointerup', 'pointercancel'].forEach(ev => canvas.addEventListener(ev, () => { drag = null; }));
 
+// ---------- view buttons ----------
+let camAnim = null;
+function animateView(dTheta, phi) {
+  camAnim = { t0:performance.now(), th0:camTheta, th1:camTheta + dTheta, ph0:camPhi, ph1:phi };
+}
+function stepView(now) {
+  if (!camAnim) return;
+  const p = Math.min(1, (now - camAnim.t0) / 350), e = 1 - Math.pow(1 - p, 3);
+  camTheta = camAnim.th0 + (camAnim.th1 - camAnim.th0) * e;
+  camPhi = camAnim.ph0 + (camAnim.ph1 - camAnim.ph0) * e;
+  placeCamera();
+  if (p >= 1) camAnim = null;
+}
+document.getElementById('viewLeft').onclick = () => animateView(Math.PI / 2, camPhi);
+document.getElementById('viewRight').onclick = () => animateView(-Math.PI / 2, camPhi);
+// Flip between looking down on the top and looking up at the bottom.
+document.getElementById('viewFlip').onclick = () => animateView(0, camPhi < Math.PI / 2 ? Math.PI * 2 / 3 : Math.PI / 3);
+
 // ---------- loop ----------
 function frame(now) {
   stepTurns(now);
+  stepView(now);
   updateHud();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
