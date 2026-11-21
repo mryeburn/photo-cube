@@ -45,11 +45,12 @@
 <body>
 <canvas id="c"></canvas>
 <div id="hud"></div>
-<div id="hint">Swipe a square to turn its row · swipe empty space or use the arrows to look around</div>
+<div id="hint">Swipe a square to turn its row · swipe empty space or tap the arrows to roll the cube</div>
 <div id="viewBar">
-  <button id="viewLeft" class="round" aria-label="Turn the view left">◀</button>
-  <button id="viewFlip" class="round" aria-label="Flip to see the top or bottom">⇅</button>
-  <button id="viewRight" class="round" aria-label="Turn the view right">▶</button>
+  <button id="viewLeft" class="round" aria-label="Roll the cube left">◀</button>
+  <button id="viewUp" class="round" aria-label="Roll the cube up">▲</button>
+  <button id="viewDown" class="round" aria-label="Roll the cube down">▼</button>
+  <button id="viewRight" class="round" aria-label="Roll the cube right">▶</button>
 </div>
 <div id="bar">
   <button id="startBtn">Start</button>
@@ -156,14 +157,22 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 3));
 renderer.setClearColor(0x15161f);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
-let camTheta = Math.PI / 5, camPhi = Math.PI / 3, camDist = 10;
+// The camera circles the cube freely (no stops): camQ is its orientation, and it sits camDist
+// away along its own viewing line, always looking at the centre of the cube.
+const camQ = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 6, Math.PI / 5, 0, 'YXZ'));
+let camDist = 10;
+const LOCAL_X = new V(1, 0, 0), LOCAL_Y = new V(0, 1, 0);
 
 function placeCamera() {
-  camera.position.set(
-    camDist * Math.sin(camPhi) * Math.sin(camTheta),
-    camDist * Math.cos(camPhi),
-    camDist * Math.sin(camPhi) * Math.cos(camTheta));
-  camera.lookAt(0, 0, 0);
+  camera.quaternion.copy(camQ);
+  camera.position.set(0, 0, camDist).applyQuaternion(camQ);
+}
+// Turn the camera about its own screen axes, so a swipe always rolls the cube the way your finger moves.
+function orbit(yaw, pitch) {
+  camQ.multiply(new THREE.Quaternion().setFromAxisAngle(LOCAL_Y, yaw));
+  camQ.multiply(new THREE.Quaternion().setFromAxisAngle(LOCAL_X, pitch));
+  camQ.normalize();
+  placeCamera();
 }
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -352,10 +361,8 @@ canvas.addEventListener('pointermove', e => {
   if (!drag) return;
   if (!drag.cubie) { // orbit the camera
     camAnim = null;
-    camTheta -= (e.clientX - drag.lx) * 0.014;
-    camPhi = Math.min(Math.PI - 0.15, Math.max(0.15, camPhi - (e.clientY - drag.ly) * 0.014));
+    orbit(-(e.clientX - drag.lx) * 0.014, -(e.clientY - drag.ly) * 0.014);
     drag.lx = e.clientX; drag.ly = e.clientY;
-    placeCamera();
     return;
   }
   if (drag.decided) return;
@@ -385,21 +392,23 @@ canvas.addEventListener('pointermove', e => {
 
 // ---------- view buttons ----------
 let camAnim = null;
-function animateView(dTheta, phi) {
-  camAnim = { t0:performance.now(), th0:camTheta, th1:camTheta + dTheta, ph0:camPhi, ph1:phi };
+function animateView(axis, angle) {
+  const from = camAnim ? camAnim.q1.clone() : camQ.clone();
+  if (camAnim) camQ.copy(from);
+  const to = from.clone().multiply(new THREE.Quaternion().setFromAxisAngle(axis, angle));
+  camAnim = { t0:performance.now(), q0:from, q1:to };
 }
 function stepView(now) {
   if (!camAnim) return;
   const p = Math.min(1, (now - camAnim.t0) / 350), e = 1 - Math.pow(1 - p, 3);
-  camTheta = camAnim.th0 + (camAnim.th1 - camAnim.th0) * e;
-  camPhi = camAnim.ph0 + (camAnim.ph1 - camAnim.ph0) * e;
+  camQ.slerpQuaternions(camAnim.q0, camAnim.q1, e);
   placeCamera();
   if (p >= 1) camAnim = null;
 }
-document.getElementById('viewLeft').onclick = () => animateView(Math.PI / 2, camPhi);
-document.getElementById('viewRight').onclick = () => animateView(-Math.PI / 2, camPhi);
-// Flip between looking down on the top and looking up at the bottom.
-document.getElementById('viewFlip').onclick = () => animateView(0, camPhi < Math.PI / 2 ? Math.PI * 2 / 3 : Math.PI / 3);
+document.getElementById('viewLeft').onclick = () => animateView(LOCAL_Y, Math.PI / 2);
+document.getElementById('viewRight').onclick = () => animateView(LOCAL_Y, -Math.PI / 2);
+document.getElementById('viewUp').onclick = () => animateView(LOCAL_X, Math.PI / 2);
+document.getElementById('viewDown').onclick = () => animateView(LOCAL_X, -Math.PI / 2);
 
 // ---------- loop ----------
 function frame(now) {
