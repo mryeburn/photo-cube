@@ -60,9 +60,12 @@
 
 <div id="setup" class="overlay">
   <h1>Your photos</h1>
-  <p>Tap a square to choose a photo for that side of the cube.<br>Each photo is cropped square and split into 9 tiles.</p>
+  <p>Tap a square to replace the photo on that side of the cube.<br>Each photo is cropped square and split into 9 tiles.</p>
   <div id="slots"></div>
-  <button id="doneBtn">Done</button>
+  <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center">
+    <button id="defaultsBtn" class="secondary">Use default photos</button>
+    <button id="doneBtn">Done</button>
+  </div>
 </div>
 
 <div id="win" class="overlay">
@@ -72,6 +75,7 @@
 </div>
 
 <script src="three.min.js"></script>
+<script src="defaults.js"></script>
 <script>
 'use strict';
 const V = THREE.Vector3;
@@ -122,15 +126,22 @@ function setPhoto(i, img) {
   store('set', 'face' + i, faceCanvases[i].toDataURL('image/jpeg', 0.85));
 }
 
-FACES.forEach((f, i) => {
+// Built-in family photos (defaults.js), already cropped square. A side someone has replaced
+// uses their photo instead; "Use default photos" clears those replacements.
+const DEFAULTS = window.DEFAULT_FACES || [];
+
+function drawDataUrl(i, url) {
+  const img = new Image();
+  img.onload = () => { faceCanvases[i].getContext('2d').drawImage(img, 0, 0, TEX, TEX); faceUpdated(i); };
+  img.src = url;
+}
+function loadFace(i) {
   drawPlaceholder(i);
-  const saved = store('get', 'face' + i);
-  if (saved) {
-    const img = new Image();
-    img.onload = () => { faceCanvases[i].getContext('2d').drawImage(img, 0, 0, TEX, TEX); faceUpdated(i); };
-    img.src = saved;
-  }
-});
+  faceUpdated(i);
+  const url = store('get', 'face' + i) || DEFAULTS[i];
+  if (url) drawDataUrl(i, url);
+}
+FACES.forEach((f, i) => loadFace(i));
 
 // Photo picker slots
 const slotsEl = document.getElementById('slots');
@@ -331,7 +342,11 @@ resetBtn.onclick = () => {
 document.getElementById('againBtn').onclick = () => document.getElementById('win').classList.remove('show');
 document.getElementById('photosBtn').onclick = () => document.getElementById('setup').classList.add('show');
 document.getElementById('doneBtn').onclick = () => document.getElementById('setup').classList.remove('show');
-if (!FACES.some((f, i) => store('get', 'face' + i))) document.getElementById('setup').classList.add('show');
+document.getElementById('defaultsBtn').onclick = () => FACES.forEach((f, i) => {
+  try { localStorage.removeItem('face' + i); } catch (e) {}
+  loadFace(i);
+});
+if (!DEFAULTS.length && !FACES.some((f, i) => store('get', 'face' + i))) document.getElementById('setup').classList.add('show');
 
 // ---------- touch input ----------
 const raycaster = new THREE.Raycaster();
