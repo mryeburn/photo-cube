@@ -9,7 +9,8 @@ export function loadSamples(a) {
   if (loading) return loading;
   const get = (name, file) => fetch(new URL(`sounds/${file}`, location.href)).then(r => r.arrayBuffer())
     .then(buf => new Promise((ok, fail) => a.decodeAudioData(buf, ok, fail))).then(b => { samples[name] = b; }).catch(() => {});
-  loading = Promise.all([get('scream', 'scream.wav'), get('engine', 'engine-loop.wav'), get('rev', 'engine-rev.wav')]);
+  loading = Promise.all([get('scream', 'scream.wav'), get('engine', 'engine-loop.wav'), get('rev', 'engine-rev.wav'),
+    get('groan1', 'groan1.wav'), get('groan2', 'groan2.wav')]);
   return loading;
 }
 // A looping recording whose speed (and so pitch) can be changed: used for the revving car and the chainsaw.
@@ -225,7 +226,13 @@ function squeal(a, dest, dur = 0.6, loud = 1) {
   n.connect(nf).connect(ng).connect(master); n.start(at, Math.random()); n.stop(at + dur);
 }
 
-// A scream of fear and agony when the player is hit: the recorded Wilhelm scream.
+// A short pained groan for the first two injuries (recordings: "Pain sounds" by EmoPreben, CC0).
+export function groan(a, which, dest = a.destination) {
+  const b = samples['groan' + which]; if (!b) return;
+  const src = a.createBufferSource(), g = a.createGain(); src.buffer = b; g.gain.value = 1;
+  src.connect(g).connect(dest); src.start();
+}
+// A scream of fear and agony for the final injury: the recorded Wilhelm scream.
 export function scream(a, dest = a.destination) {
   if (!samples.scream) return;
   const src = a.createBufferSource(), g = a.createGain();

@@ -14,7 +14,7 @@ export const HAZARDS = {
   anvil:    { lane:'sky', scale:1.4, w:0.38, h:0.22, speed:1.2,  draw:drawAnvil },
   plane:    { lane:'sky', scale:1.6, w:0.52, h:0.32, speed:1.05, hitR:0.24, dives:true, draw:drawPlane },
   car:      { lane:'ground', scale:1.5, w:0.64, h:0.3, speed:3.5,  draw:drawCar },
-  pig:      { lane:'ground', scale:1.4, w:0.44, h:0.28, speed:1.8, draw:drawPig },
+  pig:      { lane:'ground', scale:1.4, w:0.44, h:0.28, speed:3.06, draw:drawPig },
   tire:     { lane:'ground', scale:1.3, w:0.26, h:0.26, speed:2.0, draw:drawTire, bounce:true },
   eagle:    { lane:'air', scale:2.6, hitH:0.3, w:0.44, h:0.2, speed:1.4, draw:drawEagle },
   missile:  { lane:'air', twoPass:true, scale:1.5, w:0.5, h:0.12, speed:3.2, draw:drawMissile },

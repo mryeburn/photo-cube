@@ -16,4 +16,5 @@ Built with [MediaPipe](https://developers.google.com/mediapipe) pose and face de
 
 - Scream: the "Wilhelm scream", public domain (CC0), via [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Wilhelm_Scream.ogg).
 - Car engine loop and acceleration (the engine loop, sped up, is also the chainsaw): "Car Sound Effects Pack (Low Quality)" from [OpenGameArt](https://opengameart.org/content/car-sound-effects-pack-low-quality), CC0.
+- Groans when hurt: "Pain sounds" by EmoPreben from [OpenGameArt](https://opengameart.org/content/pain-sounds-by-emopreben), CC0.
 - All other sounds are generated in the game.

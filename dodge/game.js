@@ -3,7 +3,7 @@
 // flying at head height.
 import { FilesetResolver, PoseLandmarker, FaceDetector } from './lib/mediapipe/vision_bundle.mjs';
 import { HAZARDS, BY_LANE, drawHazard, sizeOf, drawWreck } from './hazards.js';
-import { createVoice, loadSamples, scream, fire, laserCharge, laserShot, villainVoice, swoosh, pow, knockout } from './hazard-sounds.js';
+import { createVoice, loadSamples, scream, groan, fire, laserCharge, laserShot, villainVoice, swoosh, pow, knockout } from './hazard-sounds.js';
 import { drawVillain } from './villain.js';
 
 const $ = id => document.getElementById(id);
@@ -15,7 +15,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '2.2';
+const VERSION = '2.3';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -459,7 +459,8 @@ function hurt(now, hz) {
   if (now < G.safeUntil || G.state !== 'play') return;
   G.lives--; renderHearts(); G.safeUntil = now + SAFE_MS; G.shake = 12;
   if (hz.lane !== 'ufo' && hz.lane !== 'villain') { hz.hit = true; hz.vy = -0.0008 * charH * 1000 / 1000 * 0.9; hz.vx = -hz.vx * 0.4; hz.flying = true; }
-  sfx.ouch(); if (audio()) scream(actx);
+  // The first two injuries get a short groan; the third and final one gets the full scream.
+  sfx.ouch(); if (audio()) { if (G.lives > 0) groan(actx, G.lives === LIVES - 1 ? 1 : 2); else scream(actx); }
   G.effects.push({ type:'text', text:'OUCH!', x: charX, y: groundY - charH * 1.05, born: now, color:'#ff5d5d' });
   if (G.lives <= 0) { G.state = 'ending'; G.overAt = now + 1300; sfx.over(); setBanner('Game over'); }
 }
@@ -615,7 +616,8 @@ function updateHazards(now, dt, sk) {
         // The bomb takes out its own width on each side of it, sideways and upwards.
         const r = hz.w * 1.5;
         sfx.boom(); G.shake = 14;
-        G.effects.push({ type:'boom', x: hz.x, y: groundY, r, born: now, dur: 900 });
+        G.effects.push({ type:'blast', x: hz.x, y: groundY, r, born: now, dur: 700 });
+        G.effects.push({ type:'boom', x: hz.x, y: groundY, r: r * 0.9, born: now, dur: 900 });
         if (blast(hz.x, r)) { hurt(now, hz); continue; }
       } else if (d.dives) {
         // The plane crashes nose first: a fireball, then a burning hunk of molten metal.
@@ -650,6 +652,16 @@ function updateHazards(now, dt, sk) {
 function drawShadows(c, now) {
   for (const hz of G.hazards) {
     if (hz.flying) continue;
+    if (hz.lane === 'sky' && HAZARDS[hz.kind].explodes) {
+      // The bomb's blast zone: everything inside this dome is caught by the explosion.
+      const p = clamp((hz.y + hz.h) / (groundY + hz.h), 0, 1), r = hz.w * 1.5, pulse = 0.5 + 0.5 * Math.sin(now / (160 - 100 * p));
+      c.save();
+      c.fillStyle = `rgba(255,40,40,${0.08 + 0.17 * p * (0.6 + 0.4 * pulse)})`;
+      c.beginPath(); c.arc(hz.x, groundY, r, Math.PI, 0); c.closePath(); c.fill();
+      c.setLineDash([8, 6]); c.strokeStyle = `rgba(220,20,20,${0.35 + 0.5 * p})`; c.lineWidth = 2.5;
+      c.beginPath(); c.arc(hz.x, groundY, r, Math.PI, 0); c.stroke();
+      c.restore();
+    }
     if (hz.lane === 'sky') {
       const p = clamp((hz.y + hz.h) / (groundY + hz.h), 0.1, 1);
       c.fillStyle = `rgba(0,0,0,${0.15 + 0.25 * p})`;
@@ -669,6 +681,15 @@ function drawEffects(c, now) {
       c.strokeStyle = `rgba(120,255,180,${0.35 * a})`; c.lineWidth = charH * 0.12; c.beginPath(); c.moveTo(e.x1, e.y1); c.lineTo(e.x2, e.y2); c.stroke();
       c.strokeStyle = `rgba(200,255,220,${a})`; c.lineWidth = charH * 0.045; c.stroke();
       c.strokeStyle = `rgba(255,255,255,${a})`; c.lineWidth = charH * 0.015; c.stroke();
+      c.restore(); continue;
+    }
+    if (e.type === 'blast') {                                            // the bomb's blast filling its zone
+      const q = (now - e.born) / e.dur, ring = Math.min(1, q * 4);
+      c.save();
+      c.fillStyle = `rgba(255,150,40,${0.55 * (1 - q)})`;
+      c.beginPath(); c.arc(e.x, e.y, e.r, Math.PI, 0); c.closePath(); c.fill();
+      c.strokeStyle = `rgba(255,255,255,${0.9 * (1 - q)})`; c.lineWidth = 6 * (1 - q) + 1;
+      c.beginPath(); c.arc(e.x, e.y, e.r * ring, Math.PI, 0); c.stroke();
       c.restore(); continue;
     }
     if (e.type === 'wreck') { drawWreck(c, e.x, e.y, charH * HAZARDS.plane.scale, now - e.born, e.dir); continue; }
