@@ -15,7 +15,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '2.0';
+const VERSION = '2.1';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -533,7 +533,7 @@ function updateVillain(now, dt) {
   const v = G.villain; if (!v) return;
   const dx = charX - v.x, dist = Math.abs(dx) / charH, since = now - v.stateAt;
   if (v.state !== 'ko' && v.state !== 'stagger') v.dir = dx >= 0 ? 1 : -1;
-  if (v.voice) v.voice.update(v.state, clamp(1 - Math.abs(dx) / (W * 0.6), 0, 1), (v.x - charX) / (W * 0.5));
+  if (v.voice) { try { v.voice.update(v.state, clamp(1 - Math.abs(dx) / (W * 0.6), 0, 1), (v.x - charX) / (W * 0.5)); } catch (e) { v.voice.stop(); v.voice = null; console.error(e); } }
   if (v.state === 'walk') {
     if (dist > V_STOP) { v.x += v.dir * charH * 0.55 * speedUp(now) * dt / 1000; v.walk += dt / 140; }
     else setV(v, 'windup', now);
@@ -590,7 +590,8 @@ function updateHazards(now, dt, sk) {
       const body = { x: charX, y: groundY - charH * 0.5 };
       const reach = hz.lane === 'sky' ? groundY : W * 0.75;
       const prox = clamp(1 - Math.hypot(hz.x - body.x, hz.y - body.y) / reach, 0, 1);
-      hz.voice.update(prox, (hz.x - charX) / (W * 0.5), clamp((hz.y + hz.h) / groundY, 0, 1), hz, now);
+      try { hz.voice.update(prox, (hz.x - charX) / (W * 0.5), clamp((hz.y + hz.h) / groundY, 0, 1), hz, now); }
+      catch (e) { silence(hz); console.error(e); }                   // a sound problem must never stop the game
     }
     if (!hz.hit && circles.some(cr => circleHitsBox(cr, hz))) { hurt(now, hz); continue; }
     const d = HAZARDS[hz.kind];
@@ -735,7 +736,7 @@ function gameFrame(now, dt) {
   if (G.state === 'play') {
     if (lost) {                                                        // pause the action until we can see the player
       G.start += dt; G.nextSpawn += dt; G.safeUntil += dt; G.pending.forEach(p => { p.at += dt; });
-      for (const hz of G.hazards) if (hz.voice) hz.voice.update(0, 0, 0, hz, now);
+      for (const hz of G.hazards) if (hz.voice) { try { hz.voice.update(0, 0, 0, hz, now); } catch (e) { silence(hz); } }
       setBanner('Where did you go?', 'Step back into view to carry on');
     } else {
       if (now > G.bannerUntil) setBanner('');
@@ -958,12 +959,14 @@ function handsUpToRestart(now) {
 // ---------------------------------------------------------------- main loop
 let lastFrame = performance.now();
 function loop(now) {
-  const dt = Math.min(now - lastFrame, 50); lastFrame = now;
-  if (screen === 'game' || screen === 'create' || screen === 'over') track(now);
-  if (screen === 'over') handsUpToRestart(now);
-  if (screen === 'game') gameFrame(now, dt);
-  else if (screen === 'create') createFrame(now);
-  requestAnimationFrame(loop);
+  requestAnimationFrame(loop);                                         // keep going even if this frame goes wrong
+  const dt = Math.min(Math.max(now - lastFrame, 0), 50); lastFrame = now;
+  try {
+    if (screen === 'game' || screen === 'create' || screen === 'over') track(now);
+    if (screen === 'over') handsUpToRestart(now);
+    if (screen === 'game') gameFrame(now, dt);
+    else if (screen === 'create') createFrame(now);
+  } catch (e) { console.error(e); }
 }
 resize();
 $('versionLabel').textContent = `${EDITION} version ${VERSION}`;

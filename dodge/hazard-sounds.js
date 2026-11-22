@@ -120,7 +120,8 @@ export function createVoice(a, kind) {
       if (whistle) whistle.frequency.setTargetAtTime(1800 - 1300 * fall, t(), 0.05);   // falling whistle drops in pitch
       if (revRate) {
         // Revs climb through each gear, drop at the gear change, and climb again; harder as it gets close.
-        const gear = 0.9 - 0.3 * prox, ph = ((now - born) / 1000 % gear) / gear;
+        // (the frame's clock can be a fraction of a millisecond behind `born`, so never let the age go negative)
+        const gear = 0.9 - 0.3 * prox, ph = (Math.max(0, now - born) / 1000 % gear) / gear;
         const rate = 0.9 + (0.6 + 0.5 * prox) * Math.pow(ph, 0.7);
         revRate.setTargetAtTime(rate, t(), ph < 0.06 ? 0.05 : 0.03);
       }
