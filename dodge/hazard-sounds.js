@@ -40,7 +40,8 @@ const SOUNDS = {
   car:      { base:1.0,  revs:true, floor:0.3 },                        // loud, revving engine
   pig:      { base:0.45, every:[0.75, 'squeal'], charge:true },
   tire:     { base:1.0, floor:0.25 },                                  // bounces: see bounce()
-  eagle:    { base:0.35, every:[0.22, 'flap'], cry:'screech' },
+  eagle:    { base:0.35, every:[0.22, 'flap'], screechAtStart:true, whoosh:true },   // screeches as it starts its dive
+  boomerang:{ base:0.6,  every:[0.085, 'whirr'], steady:true },           // a fast flutter as it spins
   missile:  { base:0.3,  hiss:1400, engine:[110, 'sawtooth', 500] },
   arrow:    { base:0.5,  twang:true },                                   // a bow twang, then silent flight
   tomahawk: { base:0.55, every:[0.63, 'whup'], steady:true },        // whup-whup: once per half turn as it spins
@@ -85,6 +86,7 @@ export function createVoice(a, kind) {
     clank: () => { ping('triangle', 1300 + Math.random() * 500, 900, 0.08, 0.6); },
     screech: () => ping('sine', 2400, 1500, 0.6, 0.6),
     whup: () => burst('bandpass', 850, 0.13, 1.1),               // a spinning blade cutting the air
+    whirr: () => burst('bandpass', 560 + Math.random() * 120, 0.06, 1.2),   // each turn of a boomerang
     squeal: () => squeal(a, out, 0.45 + Math.random() * 0.25, 0.9),
   };
 
@@ -113,6 +115,15 @@ export function createVoice(a, kind) {
   if (cfg.twang) twang(a, pan || a.destination);
   // The pig announces its charge with a squeal at full volume.
   if (cfg.charge) setTimeout(() => squeal(a, pan || a.destination, 0.8, 0.8), 50);
+  // The eagle's screech, loud whatever the distance, as it tips into its dive.
+  if (cfg.screechAtStart) setTimeout(() => screech(a, pan || a.destination), 120);
+  // A rushing whoosh of air that grows much louder as it gets close.
+  let whooshGain = null;
+  if (cfg.whoosh) {
+    const src = a.createBufferSource(), fl = a.createBiquadFilter(); whooshGain = a.createGain(); whooshGain.gain.value = 0;
+    src.buffer = noiseBuffer(a); src.loop = true; fl.type = 'bandpass'; fl.frequency.value = 900; fl.Q.value = 0.7;
+    src.connect(fl).connect(whooshGain).connect(pan || a.destination); src.start(); nodes.push(src);
+  }
   let nextEvent = 0, nextAlso = 0, cried = false, lastX = null;
 
   return {
@@ -138,7 +149,8 @@ export function createVoice(a, kind) {
         engine.frequency.setTargetAtTime(f, t(), 0.08);
       }
       lastX = hz.x;
-      if (cfg.every && now >= nextEvent) { EVENTS[cfg.every[1]](); nextEvent = now + cfg.every[0] * 1000 * (cfg.steady ? 1 : 1 - 0.35 * prox); }
+      if (whooshGain) whooshGain.gain.setTargetAtTime(0.9 * Math.pow(prox, 3), t(), 0.06);
+      if (cfg.every && now >= nextEvent) { EVENTS[cfg.every[1]](); nextEvent = now + cfg.every[0] * 1000 * (cfg.steady ? 1 : 1 - 0.35 * prox) * (hz.climbing ? 0.55 : 1); }
       if (cfg.also && now >= nextAlso) { EVENTS[cfg.also[1]](); nextAlso = now + cfg.also[0] * 1000; }
       if (cfg.cry && !cried && prox > 0.45) { cried = true; EVENTS[cfg.cry](); }
       if (cfg.trumpet && !trumpetedAgain && fall > 0.55) { trumpetedAgain = true; trumpet(a, pan || a.destination, 0.9, 0.9); }
@@ -153,7 +165,8 @@ export function createVoice(a, kind) {
     },
     stop() {
       out.gain.setTargetAtTime(0, t(), 0.04);
-      setTimeout(() => { for (const n of nodes) { try { n.stop(); } catch (e) { /* already stopped */ } } out.disconnect(); if (pan) pan.disconnect(); }, 300);
+      if (whooshGain) whooshGain.gain.setTargetAtTime(0, t(), 0.04);
+      setTimeout(() => { for (const n of nodes) { try { n.stop(); } catch (e) { /* already stopped */ } } out.disconnect(); if (whooshGain) whooshGain.disconnect(); if (pan) pan.disconnect(); }, 300);
     },
   };
 }
@@ -393,4 +406,17 @@ export function twang(a, dest = a.destination) {
   const n = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
   n.buffer = buf; f.type = 'bandpass'; f.frequency.value = 2800; f.Q.value = 1.2; g.gain.value = 0.5;
   n.connect(f).connect(g).connect(dest); n.start(at);
+}
+
+// A bald eagle's cry: a high, harsh, falling scream with a quick flutter in it.
+function screech(a, dest) {
+  const at = a.currentTime, o = a.createOscillator(), o2 = a.createOscillator(), g = a.createGain(), lfo = a.createOscillator(), amt = a.createGain();
+  o.type = 'sawtooth'; o2.type = 'sine';
+  o.frequency.setValueAtTime(2300, at); o.frequency.exponentialRampToValueAtTime(1500, at + 0.7);
+  o2.frequency.setValueAtTime(3400, at); o2.frequency.exponentialRampToValueAtTime(2300, at + 0.7);
+  lfo.frequency.value = 28; amt.gain.value = 120; lfo.connect(amt); amt.connect(o.frequency); amt.connect(o2.frequency);
+  const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400; bp.Q.value = 1.2;
+  g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(0.35, at + 0.04); g.gain.setValueAtTime(0.35, at + 0.4); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.75);
+  o.connect(bp); o2.connect(bp); bp.connect(g).connect(dest);
+  for (const n of [o, o2, lfo]) { n.start(at); n.stop(at + 0.8); }
 }

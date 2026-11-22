@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '2.6';
+const VERSION = '2.7';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -230,7 +230,7 @@ function buildBody() {
     rKnee: P2(0.09 + d * 0.35 - run * 0.05, 0.23 - d * 0.25 + air * 0.08 + Math.max(0, -run) * 0.05),
     lAnk: P2(-0.09 + air * 0.05 + run * 0.08, 0.03 + air * 0.12 + Math.max(0, run) * 0.06),   // tucked together in a jump
     rAnk: P2(0.09 - air * 0.05 - run * 0.08, 0.03 + air * 0.12 + Math.max(0, -run) * 0.06),
-    head: { ...P2(0, 0.86 - d), r: s * 0.11, tilt: 0 },
+    head: { ...P2(0, 0.86 - d), r: s * 0.095, tilt: 0 },
   };
   k.lFoot = { x: k.lAnk.x - s * 0.05, y: k.lAnk.y }; k.rFoot = { x: k.rAnk.x + s * 0.05, y: k.rAnk.y };
   k.hip = { x: charX, y: (k.lHip.y + k.rHip.y) / 2 };
@@ -247,6 +247,7 @@ function buildBody() {
   for (const [side, sh, el, wr, sx] of [['l', P.lSh, P.lEl, P.lWr, -1], ['r', P.rSh, P.rEl, P.rWr, 1]]) {
     const S = k[side + 'Sh'];
     if (lm && seen(sh, el, wr)) {
+      k.tracked = true;
       k[side + 'El'] = capLen(S, { x: (lm[el].x - lm[sh].x) * unit, y: (lm[el].y - lm[sh].y) * unit }, s * 0.17);
       k[side + 'Wr'] = capLen(k[side + 'El'], { x: (lm[wr].x - lm[el].x) * unit, y: (lm[wr].y - lm[el].y) * unit }, s * 0.16);
     } else {
@@ -271,46 +272,174 @@ function shade(hex, f) {
   r = Math.round(r + (t - r) * k); g = Math.round(g + (t - g) * k); b = Math.round(b + (t - b) * k);
   return '#' + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
 }
-function drawHead(c, p, h) {
+// A face with a mood: 'neutral' most of the time, 'alarm' when something is about to hit, 'pain' just after a
+// hit. With a photo face the photo is shown instead, with a red flash and a wince-shake when hurt.
+function drawHead(c, p, h, mood = 'neutral', now = 0) {
   c.save(); c.translate(h.x, h.y); c.rotate(h.tilt);
   const r = h.r, img = faceImage(p);
-  c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2);
-  if (img) { c.save(); c.clip(); c.drawImage(img, -r, -r, r * 2, r * 2); c.restore(); }
-  else {
-    c.fillStyle = p.skin; c.fill(); c.fillStyle = OUTLINE;
-    c.beginPath(); c.ellipse(-r * 0.33, -r * 0.1, r * 0.09, r * 0.14, 0, 0, 7); c.fill();
-    c.beginPath(); c.ellipse(r * 0.33, -r * 0.1, r * 0.09, r * 0.14, 0, 0, 7); c.fill();
-    c.lineWidth = r * 0.08; c.lineCap = 'round'; c.strokeStyle = OUTLINE;
-    c.beginPath(); c.arc(0, r * 0.18, r * 0.35, 0.15 * Math.PI, 0.85 * Math.PI); c.stroke();
-    c.fillStyle = '#5b3a29'; c.beginPath(); c.arc(0, -r * 0.55, r * 0.75, Math.PI * 1.1, Math.PI * 1.9); c.fill();
+  if (mood === 'pain') c.translate(Math.sin(now / 28) * r * 0.08, 0);                    // wince
+  if (img) {
+    c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2);
+    c.save(); c.clip(); c.drawImage(img, -r, -r, r * 2, r * 2);
+    if (mood === 'pain') { c.fillStyle = `rgba(255,30,30,${0.25 + 0.2 * Math.abs(Math.sin(now / 90))})`; c.fillRect(-r, -r, r * 2, r * 2); }
+    c.restore();
+    c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.lineWidth = Math.max(2, r * 0.06); c.strokeStyle = OUTLINE; c.stroke();
+    c.restore(); return;
   }
-  c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.lineWidth = Math.max(3, r * 0.08); c.strokeStyle = OUTLINE; c.stroke();
+  const skin = p.skin, dark = shade(skin, -0.25), ink = 'rgba(40,25,20,0.9)';
+  // ears
+  for (const sx of [-1, 1]) { c.fillStyle = shade(skin, -0.08); c.beginPath(); c.ellipse(sx * r * 0.86, r * 0.05, r * 0.16, r * 0.26, 0, 0, 7); c.fill(); c.strokeStyle = dark; c.lineWidth = 1; c.stroke(); }
+  // face: an oval, lit from the upper left, with a shaded jaw
+  const face = new Path2D(); face.ellipse(0, r * 0.04, r * 0.84, r * 1.0, 0, 0, 7);
+  const g = c.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r * 1.15); g.addColorStop(0, shade(skin, 0.18)); g.addColorStop(0.7, skin); g.addColorStop(1, dark);
+  c.fillStyle = g; c.fill(face); c.strokeStyle = shade(skin, -0.45); c.lineWidth = Math.max(1.5, r * 0.04); c.stroke(face);
+  // hair: short, side-parted, greying at the temples
+  c.save(); c.clip(face);
+  const hair = c.createLinearGradient(0, -r, 0, -r * 0.3); hair.addColorStop(0, '#5b4636'); hair.addColorStop(1, '#3d2e24');
+  c.fillStyle = hair; c.beginPath(); c.moveTo(-r, -r * 0.2); c.quadraticCurveTo(-r * 0.9, -r * 1.15, 0, -r * 1.05); c.quadraticCurveTo(r * 0.95, -r * 1.1, r, -r * 0.25);
+  c.quadraticCurveTo(r * 0.75, -r * 0.62, r * 0.2, -r * 0.66); c.quadraticCurveTo(-r * 0.3, -r * 0.7, -r * 0.62, -r * 0.5); c.quadraticCurveTo(-r * 0.8, -r * 0.4, -r, -r * 0.2); c.fill();
+  c.fillStyle = 'rgba(200,200,200,0.35)'; for (const sx of [-1, 1]) { c.beginPath(); c.ellipse(sx * r * 0.8, -r * 0.3, r * 0.1, r * 0.22, 0, 0, 7); c.fill(); }
+  c.restore();
+  // eyebrows, eyes, nose and mouth by mood
+  const alarm = mood === 'alarm', pain = mood === 'pain';
+  c.lineCap = 'round';
+  for (const sx of [-1, 1]) {
+    const ex = sx * r * 0.33, ey = -r * 0.1;
+    // brows: level (neutral), raised and arched (alarm), pulled down to the middle (pain)
+    c.strokeStyle = '#3d2e24'; c.lineWidth = r * 0.09; c.beginPath();
+    if (alarm) { c.moveTo(ex - sx * r * 0.18, ey - r * 0.3); c.quadraticCurveTo(ex, ey - r * 0.44, ex + sx * r * 0.18, ey - r * 0.3); }
+    else if (pain) { c.moveTo(ex - sx * r * 0.18, ey - r * 0.12); c.lineTo(ex + sx * r * 0.18, ey - r * 0.27); }
+    else { c.moveTo(ex - sx * r * 0.17, ey - r * 0.22); c.quadraticCurveTo(ex, ey - r * 0.28, ex + sx * r * 0.18, ey - r * 0.21); }
+    c.stroke();
+    if (pain) {                                                      // squeezed shut
+      c.strokeStyle = ink; c.lineWidth = r * 0.06; c.beginPath(); c.moveTo(ex - sx * r * 0.14, ey - r * 0.04); c.lineTo(ex + sx * r * 0.02, ey + r * 0.02); c.lineTo(ex + sx * r * 0.14, ey - r * 0.03); c.stroke();
+    } else {
+      const ew = r * 0.15, eh = alarm ? r * 0.12 : r * 0.075;
+      c.fillStyle = '#fbfbf8'; c.beginPath(); c.ellipse(ex, ey, ew, eh, 0, 0, 7); c.fill(); c.strokeStyle = ink; c.lineWidth = Math.max(1, r * 0.03); c.stroke();
+      c.fillStyle = '#5a7a3a'; c.beginPath(); c.arc(ex, ey, alarm ? r * 0.055 : r * 0.07, 0, 7); c.fill();     // iris (smaller, staring, when alarmed)
+      c.fillStyle = '#111'; c.beginPath(); c.arc(ex, ey, r * 0.032, 0, 7); c.fill();
+      c.fillStyle = '#fff'; c.beginPath(); c.arc(ex - r * 0.02, ey - r * 0.02, r * 0.014, 0, 7); c.fill();
+      if (!alarm) { c.strokeStyle = shade(skin, -0.35); c.lineWidth = Math.max(1, r * 0.035); c.beginPath(); c.ellipse(ex, ey - r * 0.005, ew * 1.02, eh * 1.15, 0, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); }   // lid
+    }
+  }
+  // nose: a soft shadow down one side and a rounded tip
+  c.strokeStyle = shade(skin, -0.3); c.lineWidth = Math.max(1.2, r * 0.045);
+  c.beginPath(); c.moveTo(r * 0.04, -r * 0.05); c.quadraticCurveTo(r * 0.12, r * 0.2, r * 0.1, r * 0.27); c.quadraticCurveTo(0, r * 0.33, -r * 0.1, r * 0.27); c.stroke();
+  // mouth
+  const my = r * 0.52;
+  if (alarm) {                                                       // open in fright
+    c.fillStyle = '#4a1f1f'; c.beginPath(); c.ellipse(0, my + r * 0.02, r * 0.13, r * 0.16, 0, 0, 7); c.fill(); c.strokeStyle = ink; c.lineWidth = Math.max(1, r * 0.03); c.stroke();
+    c.fillStyle = '#f1f1ea'; c.fillRect(-r * 0.09, my - r * 0.12, r * 0.18, r * 0.05);
+  } else if (pain) {                                                 // a clenched grimace
+    c.fillStyle = '#f1f1ea'; c.beginPath(); c.moveTo(-r * 0.3, my - r * 0.02); c.quadraticCurveTo(0, my - r * 0.1, r * 0.3, my - r * 0.02); c.lineTo(r * 0.24, my + r * 0.1); c.quadraticCurveTo(0, my + r * 0.04, -r * 0.24, my + r * 0.1); c.closePath(); c.fill();
+    c.strokeStyle = ink; c.lineWidth = Math.max(1, r * 0.035); c.stroke();
+    c.lineWidth = 1; c.beginPath(); c.moveTo(-r * 0.27, my + r * 0.035); c.lineTo(r * 0.27, my + r * 0.035);
+    for (let i = -2; i <= 2; i++) { c.moveTo(i * r * 0.09, my - r * 0.06); c.lineTo(i * r * 0.08, my + r * 0.08); } c.stroke();
+  } else {                                                           // neutral: a straight, relaxed mouth
+    c.strokeStyle = shade(skin, -0.45); c.lineWidth = Math.max(1.5, r * 0.05); c.beginPath(); c.moveTo(-r * 0.2, my); c.quadraticCurveTo(0, my + r * 0.015, r * 0.2, my); c.stroke();
+    c.strokeStyle = shade(skin, -0.15); c.lineWidth = Math.max(1, r * 0.03); c.beginPath(); c.moveTo(-r * 0.12, my + r * 0.12); c.quadraticCurveTo(0, my + r * 0.16, r * 0.12, my + r * 0.12); c.stroke();   // lower lip shadow
+  }
   c.restore();
 }
-function drawCharacter(c, k, p, hurt) {
+
+// A tapered, shaded limb segment (outline, colour, then a soft highlight along one side).
+function limb2(c, a, b, w0, w1, color) {
+  const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1, nx = -dy / l, ny = dx / l;
+  const path = new Path2D();
+  path.moveTo(a.x + nx * w0 / 2, a.y + ny * w0 / 2); path.lineTo(b.x + nx * w1 / 2, b.y + ny * w1 / 2);
+  path.arc(b.x, b.y, w1 / 2, Math.atan2(ny, nx), Math.atan2(ny, nx) - Math.PI, true);   // rounded ends
+  path.lineTo(a.x - nx * w0 / 2, a.y - ny * w0 / 2); path.arc(a.x, a.y, w0 / 2, Math.atan2(-ny, -nx), Math.atan2(-ny, -nx) - Math.PI, true); path.closePath();
+  const g = c.createLinearGradient(a.x + nx * w0 / 2, a.y + ny * w0 / 2, a.x - nx * w0 / 2, a.y - ny * w0 / 2);
+  g.addColorStop(0, shade(color, -0.3)); g.addColorStop(0.45, color); g.addColorStop(0.8, shade(color, 0.15)); g.addColorStop(1, shade(color, -0.15));
+  c.fillStyle = g; c.fill(path);
+  c.strokeStyle = OUTLINE; c.lineWidth = 2; c.beginPath();                 // outline the sides only, so joints blend
+  c.moveTo(a.x + nx * w0 / 2, a.y + ny * w0 / 2); c.lineTo(b.x + nx * w1 / 2, b.y + ny * w1 / 2);
+  c.moveTo(a.x - nx * w0 / 2, a.y - ny * w0 / 2); c.lineTo(b.x - nx * w1 / 2, b.y - ny * w1 / 2); c.stroke();
+  return path;
+}
+function hand(c, el, wr, s, skin) {
+  const a = Math.atan2(wr.y - el.y, wr.x - el.x);
+  c.save(); c.translate(wr.x, wr.y); c.rotate(a);
+  const g = c.createRadialGradient(0, -s * 0.01, 0, 0, 0, s * 0.045); g.addColorStop(0, shade(skin, 0.1)); g.addColorStop(1, shade(skin, -0.2));
+  c.fillStyle = g; c.strokeStyle = OUTLINE; c.lineWidth = 2;
+  c.beginPath(); c.ellipse(s * 0.025, 0, s * 0.033, s * 0.024, 0, 0, 7); c.fill(); c.stroke();              // palm and fingers
+  c.beginPath(); c.ellipse(s * 0.015, -s * 0.022, s * 0.014, s * 0.008, -0.6, 0, 7); c.fill(); c.stroke();    // thumb
+  c.strokeStyle = shade(skin, -0.3); c.lineWidth = 1;
+  for (const y of [-0.008, 0.004, 0.015]) { c.beginPath(); c.moveTo(s * 0.035, y * s); c.lineTo(s * 0.053, y * s); c.stroke(); }   // finger lines
+  c.restore();
+}
+function shoe(c, an, ft, s) {
+  const dir = Math.sign(ft.x - an.x) || 1;
+  c.save(); c.translate(an.x, an.y + s * 0.012); c.scale(dir, 1);
+  const up = c.createLinearGradient(0, -s * 0.03, 0, s * 0.02); up.addColorStop(0, '#6b4a33'); up.addColorStop(1, '#3a2618');
+  c.fillStyle = up; c.strokeStyle = OUTLINE; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(-s * 0.03, s * 0.015); c.lineTo(-s * 0.03, -s * 0.02); c.quadraticCurveTo(0, -s * 0.035, s * 0.03, -s * 0.012);
+  c.quadraticCurveTo(s * 0.085, -s * 0.008, s * 0.09, s * 0.015); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#1e1e1e'; c.fillRect(-s * 0.033, s * 0.012, s * 0.126, s * 0.012);                            // sole
+  c.strokeStyle = '#e9e4da'; c.lineWidth = 1.2;
+  for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(s * (0.005 + i * 0.012), -s * 0.026 + i * s * 0.003); c.lineTo(s * (0.015 + i * 0.012), -s * 0.018 + i * s * 0.003); c.stroke(); }   // laces
+  c.fillStyle = 'rgba(255,255,255,0.25)'; c.beginPath(); c.ellipse(s * 0.06, -s * 0.004, s * 0.015, s * 0.005, -0.2, 0, 7); c.fill();
+  c.restore();
+}
+
+// The player's man: natural proportions, a shaded shirt with folds and a collar, a belt, trousers with a
+// crease, arms with hands, a neck, and leather shoes. mood: see drawHead.
+function drawCharacter(c, k, p, hurt, mood = 'neutral', now = performance.now()) {
   const s = charH, shirt = p.shirt, pants = p.pants || DEFAULT.pants, skin = p.skin;
   c.save();
-  if (hurt) c.globalAlpha = 0.45 + 0.4 * Math.abs(Math.sin(performance.now() / 70));   // blink while safe after a hit
-  // legs and shoes
+  if (hurt) c.globalAlpha = 0.55 + 0.35 * Math.abs(Math.sin(now / 70));   // blink while safe after a hit
+  // A photo-face player can't pull faces, so the body shows it: shoulders hunch up and (unless the camera is
+  // copying the arms) the arms come up to shield the head.
+  if (faceImage(p) && mood === 'alarm') {
+    k = { ...k, lSh: { x: k.lSh.x + s * 0.01, y: k.lSh.y - s * 0.03 }, rSh: { x: k.rSh.x - s * 0.01, y: k.rSh.y - s * 0.03 } };
+    for (const [side, sx] of [['l', -1], ['r', 1]]) if (!k.tracked) {
+      const S = k[side + 'Sh'];
+      k[side + 'El'] = { x: S.x + sx * s * 0.09, y: S.y - s * 0.02 };
+      k[side + 'Wr'] = { x: k.head.x + sx * s * 0.06, y: k.head.y - s * 0.02 };
+    }
+  }
+  // legs (trousers) and shoes
   for (const [h, kn, an, ft] of [[k.lHip, k.lKnee, k.lAnk, k.lFoot], [k.rHip, k.rKnee, k.rAnk, k.rFoot]]) {
-    limb(c, h, kn, s * 0.085, pants); limb(c, kn, an, s * 0.075, pants);
-    const dir = Math.sign(ft.x - an.x) || 1;
-    c.fillStyle = '#343a40'; c.strokeStyle = OUTLINE; c.lineWidth = 3;
-    c.beginPath(); c.ellipse(an.x + dir * s * 0.035, an.y + s * 0.015, s * 0.06, s * 0.03, 0, 0, 7); c.fill(); c.stroke();
+    limb2(c, h, kn, s * 0.1, s * 0.075, pants); limb2(c, kn, an, s * 0.072, s * 0.06, pants);
+    c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo((h.x + kn.x) / 2, (h.y + kn.y) / 2); c.lineTo(kn.x, kn.y); c.lineTo((kn.x + an.x) / 2, (kn.y + an.y) / 2); c.stroke();   // crease
+    shoe(c, an, ft, s);
   }
-  // torso
+  // torso: shirt shaped over the shoulders, a little narrower at the waist
   const grow = (a, o, f) => ({ x: a.x + (a.x - o.x) * f, y: a.y + (a.y - o.y) * f });
-  const ls = grow(k.lSh, k.rSh, 0.15), rs = grow(k.rSh, k.lSh, 0.15), lh = grow(k.lHip, k.rHip, 0.1), rh = grow(k.rHip, k.lHip, 0.1);
-  c.fillStyle = shirt; c.strokeStyle = OUTLINE; c.lineWidth = 4; c.lineJoin = 'round';
-  c.beginPath(); c.moveTo(ls.x, ls.y); c.lineTo(rs.x, rs.y); c.lineTo(rh.x, rh.y); c.lineTo(lh.x, lh.y); c.closePath(); c.fill(); c.stroke();
-  c.fillStyle = pants; c.beginPath(); c.moveTo(lh.x, lh.y - s * 0.02); c.lineTo(rh.x, rh.y - s * 0.02); c.lineTo(rh.x, rh.y + s * 0.03); c.lineTo(lh.x, lh.y + s * 0.03); c.closePath(); c.fill(); c.stroke();
-  // neck, arms, head
-  const neck = { x:(k.lSh.x + k.rSh.x) / 2, y:(k.lSh.y + k.rSh.y) / 2 };
-  limb(c, neck, k.head, s * 0.05, skin);
+  const ls = grow(k.lSh, k.rSh, 0.12), rs = grow(k.rSh, k.lSh, 0.12), lh = grow(k.lHip, k.rHip, 0.12), rh = grow(k.rHip, k.lHip, 0.12);
+  const neck = { x: (k.lSh.x + k.rSh.x) / 2, y: (k.lSh.y + k.rSh.y) / 2 };
+  const torso = new Path2D();
+  torso.moveTo(lh.x, lh.y); torso.lineTo(ls.x, ls.y + s * 0.03); torso.quadraticCurveTo(ls.x + s * 0.005, ls.y - s * 0.005, ls.x + s * 0.05, ls.y - s * 0.012);
+  torso.lineTo(rs.x - s * 0.05, rs.y - s * 0.012); torso.quadraticCurveTo(rs.x - s * 0.005, rs.y - s * 0.005, rs.x, rs.y + s * 0.03);
+  torso.lineTo(rh.x, rh.y); torso.closePath();
+  // neck first (the collar sits over it)
+  const ng = c.createLinearGradient(neck.x - s * 0.03, 0, neck.x + s * 0.03, 0); ng.addColorStop(0, shade(skin, -0.25)); ng.addColorStop(0.5, skin); ng.addColorStop(1, shade(skin, -0.15));
+  c.fillStyle = ng; c.strokeStyle = OUTLINE; c.lineWidth = 2;
+  c.beginPath(); c.rect(neck.x - s * 0.028, k.head.y, s * 0.056, neck.y - k.head.y + s * 0.01); c.fill(); c.stroke();
+  const tg = c.createLinearGradient(ls.x, 0, rs.x, 0); tg.addColorStop(0, shade(shirt, -0.3)); tg.addColorStop(0.35, shade(shirt, 0.1)); tg.addColorStop(0.7, shirt); tg.addColorStop(1, shade(shirt, -0.35));
+  c.fillStyle = tg; c.fill(torso); c.strokeStyle = OUTLINE; c.lineWidth = 2.5; c.stroke(torso);
+  c.save(); c.clip(torso);
+  c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1.5;                                         // folds
+  for (const [f, b] of [[0.3, 0.06], [0.62, -0.05], [0.8, 0.04]]) { const y = neck.y + (lh.y - neck.y) * f; c.beginPath(); c.moveTo(neck.x - s * 0.07, y); c.quadraticCurveTo(neck.x + b * s, y + s * 0.02, neck.x + s * 0.07, y - s * 0.01); c.stroke(); }
+  c.strokeStyle = 'rgba(0,0,0,0.25)'; c.beginPath(); c.moveTo(neck.x, neck.y + s * 0.03); c.lineTo((lh.x + rh.x) / 2, lh.y); c.stroke();   // button placket
+  c.fillStyle = 'rgba(255,255,255,0.7)'; for (let i = 1; i < 4; i++) { c.beginPath(); c.arc(neck.x + ((lh.x + rh.x) / 2 - neck.x) * i / 4 + s * 0.006, neck.y + (lh.y - neck.y) * i / 4, s * 0.006, 0, 7); c.fill(); }
+  c.restore();
+  // collar
+  c.fillStyle = shade(shirt, 0.2); c.strokeStyle = OUTLINE; c.lineWidth = 1.5;
+  for (const sx of [-1, 1]) { c.beginPath(); c.moveTo(neck.x + sx * s * 0.03, neck.y - s * 0.012); c.lineTo(neck.x + sx * s * 0.055, neck.y + s * 0.005); c.lineTo(neck.x + sx * s * 0.005, neck.y + s * 0.04); c.closePath(); c.fill(); c.stroke(); }
+  // belt with a buckle
+  c.fillStyle = '#2b1d14'; c.beginPath(); c.moveTo(lh.x, lh.y - s * 0.03); c.lineTo(rh.x, rh.y - s * 0.03); c.lineTo(rh.x, rh.y); c.lineTo(lh.x, lh.y); c.closePath(); c.fill(); c.stroke();
+  c.strokeStyle = '#d4b45a'; c.lineWidth = 2; c.strokeRect((lh.x + rh.x) / 2 - s * 0.015, (lh.y + rh.y) / 2 - s * 0.027, s * 0.03, s * 0.024);
+  // arms: sleeve, forearm, hand
   for (const [sh, el, wr] of [[k.lSh, k.lEl, k.lWr], [k.rSh, k.rEl, k.rWr]]) {
-    limb(c, sh, el, s * 0.065, shade(shirt, -0.12)); limb(c, el, wr, s * 0.05, skin); blob(c, wr.x, wr.y, s * 0.035, skin);
+    limb2(c, sh, el, s * 0.07, s * 0.058, shade(shirt, -0.05));
+    const cuff = { x: el.x + (wr.x - el.x) * 0.35, y: el.y + (wr.y - el.y) * 0.35 };
+    limb2(c, el, cuff, s * 0.058, s * 0.055, shade(shirt, -0.05));                                  // sleeve rolled to below the elbow
+    limb2(c, cuff, wr, s * 0.046, s * 0.036, skin);
+    hand(c, el, wr, s, skin);
   }
-  drawHead(c, p, k.head);
+  drawHead(c, p, k.head, mood, now);
   c.restore();
 }
 
@@ -326,16 +455,19 @@ function hitCircles(k) {
     { ...mid(k.lHip, k.lKnee), r: s * 0.05 }, { ...mid(k.rHip, k.rKnee), r: s * 0.05 },
   ];
 }
-// A tomahawk is judged by its actual handle and blade, wherever they point as it spins, so a hit
-// counts exactly when the picture shows it touching the player.
-function tomahawkHits(cir, hz) {
+// A tomahawk or boomerang is judged by its actual shape, wherever it points as it spins, so a hit counts
+// exactly when the picture shows it touching the player. Segments: [x1, y1, x2, y2, half-thickness].
+const SHAPES = {
+  tomahawk: [[-0.175, 0, 0.15, 0, 0.013], [0.115, -0.015, 0.11, -0.1, 0.03], [0.07, -0.105, 0.19, -0.12, 0.022], [0.1, 0.03, 0.14, 0.03, 0.02]],
+  boomerang: [[0, -0.025, -0.155, 0.055, 0.022], [0, -0.025, 0.155, 0.055, 0.022]],
+};
+function shapeHits(cir, hz) {
   const s = charH * HAZARDS[hz.kind].scale, cs = Math.cos(hz.spin), sn = Math.sin(hz.spin);
   const pt = (px, py) => { const x = hz.dir * px * s, y = py * s; return { x: hz.x + x * cs - y * sn, y: hz.y + x * sn + y * cs }; };
-  const a = pt(-0.15, 0), b = pt(0.17, 0), blade = pt(0.135, -0.04);
-  return distToSegment(cir, a.x, a.y, b.x, b.y) < cir.r + 0.014 * s || Math.hypot(cir.x - blade.x, cir.y - blade.y) < cir.r + 0.045 * s;
+  return SHAPES[hz.kind].some(([x1, y1, x2, y2, t]) => { const a = pt(x1, y1), b = pt(x2, y2); return distToSegment(cir, a.x, a.y, b.x, b.y) < cir.r + t * s; });
 }
 function circleHitsBox(cir, hz) {
-  if (HAZARDS[hz.kind].shaped) return tomahawkHits(cir, hz);
+  if (HAZARDS[hz.kind].shaped) return shapeHits(cir, hz);
   const r = HAZARDS[hz.kind].hitR;
   if (r) return Math.hypot(cir.x - hz.x, cir.y - hz.y) < r * charH + cir.r;   // round hit area (a diving plane)
   // A little forgiving at the edges. Things on the ground are judged by their solid middle (a car's
@@ -371,7 +503,7 @@ function renderHearts() { $('hearts').textContent = '♥'.repeat(G.lives) + '♡
 function startGame() {
   audio(); resize(); silenceAll();
   stopVillain();
-  Object.assign(G, { sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, stats:{ jumps:0, ducks:0, steps:0 },
+  Object.assign(G, { sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, stats:{ jumps:0, ducks:0, steps:0 },
     phaseStart:performance.now(), lastTick:-1, bannerUntil:0, shake:0, lastSk:null });
   motion.airborne = false; motion.ducking = false;
   $('scoreNum').textContent = '0'; $('timeNum').textContent = '0:00'; renderHearts();
@@ -421,18 +553,93 @@ function spawn(lane, now, kind = null, aimed = false) {
     hz.y = lane === 'ground' ? groundY - h / 2 : groundY - charH * 0.95;   // flyers come at head height
     hz.vx = hz.dir * sp; hz.vy = 0;
     if (d.arc) {
-      // Thrown in a real arc: it leaves the thrower's hand low down (about knee height), rises under gravity to
-      // its highest point right at the player's head, then curves down behind them. Level as it passes, so
-      // ducking gets under it.
-      hz.variant = Math.random() < 0.5 ? 'beans' : 'soup';
+      // Thrown in a shallow arc: it leaves the thrower's hand a little above head height travelling almost
+      // level, and drops gently under gravity so it is at head height as it reaches the player, then keeps
+      // falling gently behind them. Ducking gets under it.
       const T = Math.abs(hz.x - charX) / sp;                          // ms until it reaches the player
-      const yTop = groundY - charH * 1.02, y0 = groundY - charH * 0.25;   // top of the arc = top of the head; start low
-      hz.g = 2 * (y0 - yTop) / (T * T); hz.y = y0; hz.vy = -hz.g * T;
+      const yAt = groundY - charH * TOMAHAWK_AT, y0 = yAt - charH * 0.3;
+      hz.g = 2 * (yAt - y0) / (T * T); hz.y = y0; hz.vy = 0;
     }
+    if (d.swoops) swoopPath(hz, sp);
+    if (d.returns) boomerangPath(hz, sp);
   }
   hz.voice = audio() ? createVoice(actx, kind) : null;
   G.hazards.push(hz);
   return hz;
+}
+
+// Things that fly along a curved path (the eagle and the boomerang): a smooth curve through the given points,
+// stored as a list of points with the distance along the curve to each, so they can move along it at any speed.
+const TOMAHAWK_AT = 1.0;   // height of the tomahawk's centre as it reaches the player, in character heights
+function setPath(hz, pts, lowest = Infinity) {
+  const out = [], P = [pts[0], ...pts, pts[pts.length - 1]];
+  for (let i = 1; i < P.length - 2; i++) {
+    const [p0, p1, p2, p3] = [P[i - 1], P[i], P[i + 1], P[i + 2]];
+    for (let j = 0; j < 16; j++) {
+      const t = j / 16, t2 = t * t, t3 = t2 * t;
+      const f = (a, b, c2, d2) => 0.5 * (2 * b + (-a + c2) * t + (2 * a - 5 * b + 4 * c2 - d2) * t2 + (-a + 3 * b - 3 * c2 + d2) * t3);
+      out.push({ x: f(p0[0], p1[0], p2[0], p3[0]), y: Math.min(lowest, f(p0[1], p1[1], p2[1], p3[1])) });   // never dips below its lowest point
+    }
+  }
+  out.push({ x: pts[pts.length - 1][0], y: pts[pts.length - 1][1] });
+  let L = 0; out[0].d = 0;
+  for (let i = 1; i < out.length; i++) { L += Math.hypot(out[i].x - out[i - 1].x, out[i].y - out[i - 1].y); out[i].d = L; }
+  hz.path = out; hz.pathLen = L; hz.dist = 0; hz.seg = 0; hz.x = out[0].x; hz.y = out[0].y; hz.vx = 0; hz.vy = 0;
+}
+function pathPoint(hz, d) {
+  const P = hz.path; while (hz.seg < P.length - 2 && P[hz.seg + 1].d < d) hz.seg++;
+  const a = P[hz.seg], b = P[hz.seg + 1], f = clamp((d - a.d) / ((b.d - a.d) || 1), 0, 1);
+  return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, tx: b.x - a.x, ty: b.y - a.y };
+}
+// The eagle comes in high from one side and swoops down, picking one of four moves: a U-shaped dip that
+// bottoms out at head height (duck); down then level at head height (duck); down then skimming just above
+// the ground (jump); or down at the player then turning back up and out the side it came from.
+function swoopPath(hz, sp) {
+  let dir = Math.random() < 0.5 ? 1 : -1;
+  const up0 = x => dir > 0 ? x : W - x;
+  if (up0(charX) < W * 0.35) dir = -dir;                             // come from the far side, so there's room to dive
+  const X = u => dir > 0 ? u : W - u, up = up0(charX);
+  const top = H * (0.02 + Math.random() * 0.08), yh = groundY - charH * 0.93, yl = groundY - charH * 0.15, mid = y => (top + y) / 2;
+  const move = window.__dgMove || ['dip', 'level', 'low', 'back'][Math.floor(Math.random() * 4)]; hz.move = move;
+  const pts = {
+    dip:   [[-0.08 * W, top], [up - 0.22 * W, mid(yh)], [up, yh], [up + 0.22 * W, mid(yh)], [Math.max(1.12 * W, up + 0.4 * W), top]],
+    level: [[-0.08 * W, top], [up - 0.3 * W, mid(yh)], [up - 0.12 * W, yh], [up + 0.1 * W, yh], [Math.max(1.15 * W, up + 0.3 * W), yh]],
+    low:   [[-0.08 * W, top], [up - 0.3 * W, mid(yl)], [up - 0.12 * W, yl], [up + 0.1 * W, yl], [Math.max(1.15 * W, up + 0.3 * W), yl]],
+    back:  [[-0.08 * W, top], [up - 0.25 * W, mid(yh)], [up, yh], [up - 0.03 * W, yh - charH * 0.4], [up - 0.2 * W, mid(yh)], [-0.15 * W, top]],
+  }[move];
+  hz.dir = dir; hz.speed = sp; setPath(hz, pts.map(([u, y]) => [X(u), y]), move === 'low' ? yl : yh); hz.flapPh = 0;
+}
+// The boomerang comes in at head height from one side, travels half or most of the way across, slows and
+// swings round, and goes back out the side it came from: at head height again (duck, duck) or low along the
+// ground (duck, then jump).
+function boomerangPath(hz, sp) {
+  let dir = Math.random() < 0.5 ? 1 : -1;
+  if ((dir > 0 ? charX : W - charX) > W * 0.6) dir = -dir;           // come from the side with room to turn beyond the player
+  const X = u => dir > 0 ? u : W - u, up = dir > 0 ? charX : W - charX;
+  // half or most of the way across, but always swinging round well past the player (never on top of them)
+  const D = Math.min(W * 0.9, Math.max((Math.random() < 0.5 ? 0.5 : 0.8) * W, up + W * 0.22)), yh = groundY - charH * TOMAHAWK_AT, yl = groundY - charH * 0.14;
+  hz.low = window.__dgLow ?? Math.random() < 0.5;   // (tests can choose)
+  const pts = hz.low
+    ? [[-0.1 * W, yh], [D - 0.15 * W, yh], [D, yh + (yl - yh) * 0.4], [D - 0.15 * W, yl], [-0.15 * W, yl]]
+    : [[-0.1 * W, yh], [D - 0.15 * W, yh], [D, yh - charH * 0.12], [D - 0.15 * W, yh - charH * 0.2], [D - 0.35 * W, yh], [-0.15 * W, yh]];
+  hz.dir = dir; hz.speed = sp; hz.turnX = X(D); hz.passSide = Math.sign(X(-0.1 * W) - charX); hz.passes = 0;
+  setPath(hz, pts.map(([u, y]) => [X(u), y]), hz.low ? yl : yh);
+}
+// Move a path-follower along. The eagle speeds up as it dives; the boomerang slows as it swings round.
+function followPath(hz, dt) {
+  const prev = { x: hz.x, y: hz.y };
+  let v = hz.speed;
+  const here = pathPoint(hz, hz.dist), slope = here.ty / (Math.hypot(here.tx, here.ty) || 1);
+  if (hz.kind === 'eagle') { v *= slope > 0 ? 1 + 0.8 * slope : 1 + 0.3 * slope; hz.climbing = slope < -0.15; hz.flapPh += dt / 70 * (hz.climbing ? 1.9 : 1); }
+  else v *= 0.4 + 0.6 * clamp(Math.abs(hz.x - hz.turnX) / (W * 0.25), 0, 1);
+  hz.dist = Math.min(hz.pathLen, hz.dist + v * dt);
+  const p = pathPoint(hz, hz.dist);
+  hz.x = p.x; hz.y = p.y; hz.vx = (p.x - prev.x) / (dt || 1); hz.vy = (p.y - prev.y) / (dt || 1);
+  if (hz.kind === 'eagle') {                                         // bank along the path, facing the way it flies
+    const a = Math.atan2(p.ty, p.tx);
+    if (p.tx >= 0) { hz.dir = 1; hz.spin = a * 0.8; }
+    else { hz.dir = -1; let b = a - Math.PI; if (b < -Math.PI) b += 2 * Math.PI; hz.spin = b * 0.8; }
+  } else hz.spin += hz.dir * dt * 0.022;                              // the boomerang spins fast and flat
 }
 
 // Where a falling object lands: 40% of the time aimed at the player, otherwise 1 to 3 character widths
@@ -478,7 +685,7 @@ const TEACH_TEXT = { ufo:['UFO!', 'Listen: when the charging sound peaks, it fir
 
 function hurt(now, hz) {
   if (now < G.safeUntil || G.state !== 'play') return;
-  G.lives--; renderHearts(); G.safeUntil = now + SAFE_MS; G.shake = 12;
+  G.lives--; renderHearts(); G.safeUntil = now + SAFE_MS; G.shake = 12; G.hurtAt = now;
   if (hz.lane !== 'ufo' && hz.lane !== 'villain') { hz.hit = true; hz.vy = -0.0008 * charH * 1000 / 1000 * 0.9; hz.vx = -hz.vx * 0.4; hz.flying = true; }
   // The first two injuries get a short groan; the third and final one gets the full scream.
   sfx.ouch(); if (audio()) { if (G.lives > 0) groan(actx, G.lives === LIVES - 1 ? 1 : 2); else scream(actx); }
@@ -611,8 +818,11 @@ function updateHazards(now, dt, sk) {
   const circles = sk ? hitCircles(sk) : [];
   for (const hz of G.hazards) {
     if (hz.done) continue;
-    if (hz.g && !hz.flying) hz.vy += hz.g * dt;
-    hz.x += hz.vx * dt; hz.y += hz.vy * dt;
+    if (hz.path && !hz.flying) followPath(hz, dt);
+    else {
+      if (hz.g && !hz.flying) hz.vy += hz.g * dt;
+      hz.x += hz.vx * dt; hz.y += hz.vy * dt;
+    }
     if (HAZARDS[hz.kind].spins) hz.spin += hz.dir * dt * 0.005;      // a tomahawk turns end over end, slowly enough to see
     if (hz.spinV && !hz.flying) hz.spin += hz.spinV * dt;              // the elephant rolls as it falls
     if (HAZARDS[hz.kind].bounce && !hz.flying) {
@@ -631,10 +841,19 @@ function updateHazards(now, dt, sk) {
     }
     if (!hz.hit && circles.some(cr => circleHitsBox(cr, hz))) { hurt(now, hz); continue; }
     const d = HAZARDS[hz.kind];
+    if (circles.length && onCourse(hz, circles, now)) G.dangerUntil = now + 200;
+    if (hz.path) {
+      if (d.returns) {                                                 // a point each time it passes the player
+        const side = Math.sign(hz.x - charX);
+        if (side && side !== hz.passSide) { hz.passSide = side; hz.passes++; dodged(now, hz); }
+      }
+      if (hz.dist >= hz.pathLen) { hz.done = true; if (!d.returns || !hz.passes) dodged(now, hz); }
+      continue;
+    }
     if (hz.lane === 'ufo') { updateUfo(hz, now, circles, dt); continue; }
     if (d.arc && hz.vy > 0 && hz.y >= groundY - hz.h * 0.4) {          // the tomahawk lands, blade first, and sticks
       hz.done = true; dodged(now, hz); sfx.thud(); tone(180, 0.12, 'square', 0.12);
-      G.effects.push({ type:'landed', hz:{ ...hz, done:false, flying:false, y: groundY - hz.w * 0.36, spin: hz.dir * 1.1 }, born: now, dur: 1400 });
+      G.effects.push({ type:'landed', hz:{ ...hz, done:false, flying:false, y: groundY - charH * 0.14, spin: hz.dir * 2.3 }, born: now, dur: 1400 });
       continue;
     }
     const noseY = d.dives ? hz.y + Math.sin(hz.angle) * hz.w * 0.45 : hz.y + hz.h / 2;
@@ -679,6 +898,23 @@ function updateHazards(now, dt, sk) {
 
 // Things falling from the sky cast a growing shadow where they will land. (No arrows: things coming
 // sideways just appear at the edge of the screen.)
+// Is this thing on course to hit the player within about a second? (Then the man looks alarmed.)
+function onCourse(hz, circles, now) {
+  if (hz.flying || hz.hit) return false;
+  if (hz.lane === 'ufo') return !!hz.charge && now - hz.charge.at > UFO_CHARGE_MS - 1000;
+  const d = HAZARDS[hz.kind];
+  for (const t of [150, 350, 550, 750, 950]) {
+    const g = hz.path ? 0 : (hz.g || 0);
+    const p = { ...hz, x: hz.x + hz.vx * t, y: hz.y + hz.vy * t + 0.5 * g * t * t };
+    if (hz.lane === 'sky' && p.y + hz.h / 2 >= groundY) {             // it will land: does it land on (or blast) the player?
+      const r = d.explodes ? hz.w * 1.5 : hz.w / 2 + charH * 0.1;
+      return Math.abs(hz.x - charX) < r;
+    }
+    if (circles.some(cr => circleHitsBox(cr, p))) return true;
+  }
+  return false;
+}
+
 function drawShadows(c, now) {
   for (const hz of G.hazards) {
     if (hz.flying) continue;
@@ -831,7 +1067,8 @@ function gameFrame(now, dt) {
   if (k) {
     ctx.fillStyle = 'rgba(0,0,0,0.2)';                                  // the character's own shadow
     ctx.beginPath(); ctx.ellipse(k.hip.x, groundY + 4, charH * 0.16 / (1 + motion.lift / charH * 3), charH * 0.03, 0, 0, 7); ctx.fill();
-    drawCharacter(ctx, k, selected(), now < G.safeUntil);
+    const mood = now - (G.hurtAt || -1e9) < 1000 ? 'pain' : now < (G.dangerUntil || 0) ? 'alarm' : 'neutral';
+    drawCharacter(ctx, k, selected(), now < G.safeUntil, mood, now);
   }
   if (G.villain) drawVillain(ctx, G.villain, charH, now);
   for (const hz of G.hazards) drawHazard(ctx, hz, charH, now);
@@ -940,7 +1177,7 @@ function drawMini(c, p, w, h) {
   const k = {
     lSh: P2(-0.12, 0.74), rSh: P2(0.12, 0.74), lEl: P2(-0.17, 0.58), rEl: P2(0.17, 0.58), lWr: P2(-0.18, 0.44), rWr: P2(0.18, 0.44),
     lHip: P2(-0.08, 0.45), rHip: P2(0.08, 0.45), lKnee: P2(-0.09, 0.23), rKnee: P2(0.09, 0.23), lAnk: P2(-0.09, 0.03), rAnk: P2(0.09, 0.03),
-    lFoot: P2(-0.14, 0.01), rFoot: P2(0.14, 0.01), head: { ...P2(0, 0.86), r: s * 0.11, tilt: 0 },
+    lFoot: P2(-0.14, 0.01), rFoot: P2(0.14, 0.01), head: { ...P2(0, 0.86), r: s * 0.095, tilt: 0 },
   };
   drawCharacter(c, k, p, false);
   charH = saved;

@@ -4,7 +4,7 @@ A full-body camera exercise game. A cartoon character copies your movements in r
 
 - **Step aside** from things falling from the sky (bomb, 25-ton weight, elephant, anvil, diving plane).
 - **Jump** over things racing along the ground (car, pig, bouncing tire). A 6-inch hop is enough to clear a car.
-- **Duck** under things flying at your head (eagle, raven, missile, arrow, tin of tomatoes).
+- **Duck** under things flying at your head (eagle, missile, arrow, tomahawk, boomerang) and jump the eagle or boomerang when they come in low.
 
 Each thing makes a sound that gets louder as it gets closer and comes from its side of the screen.
 
