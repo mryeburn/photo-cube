@@ -10,7 +10,7 @@ export function loadSamples(a) {
   const get = (name, file) => fetch(new URL(`sounds/${file}`, location.href)).then(r => r.arrayBuffer())
     .then(buf => new Promise((ok, fail) => a.decodeAudioData(buf, ok, fail))).then(b => { samples[name] = b; }).catch(() => {});
   loading = Promise.all([get('scream', 'scream.wav'), get('engine', 'engine-loop.wav'), get('rev', 'engine-rev.wav'),
-    get('groan1', 'groan1.wav'), get('groan2', 'groan2.wav')]);
+    get('groan1', 'groan1.wav'), get('groan2', 'groan2.wav'), get('bounce', 'tire-bounce.wav')]);
   return loading;
 }
 // A looping recording whose speed (and so pitch) can be changed: used for the revving car and the chainsaw.
@@ -39,7 +39,7 @@ const SOUNDS = {
   plane:    { base:0.22, whistle:true, engine:[220, 'sawtooth', 900] },
   car:      { base:1.0,  revs:true, floor:0.3 },                        // loud, revving engine
   pig:      { base:0.45, every:[0.75, 'squeal'], charge:true },
-  tire:     { base:0.6 },                                              // bounces: see bounce()
+  tire:     { base:1.0, floor:0.25 },                                  // bounces: see bounce()
   eagle:    { base:0.35, every:[0.22, 'flap'], cry:'screech' },
   missile:  { base:0.3,  hiss:1400, engine:[110, 'sawtooth', 500] },
   arrow:    { base:0.5,  twang:true },                                   // a bow twang, then silent flight
@@ -143,13 +143,12 @@ export function createVoice(a, kind) {
       if (cfg.trumpet && !trumpetedAgain && fall > 0.55) { trumpetedAgain = true; trumpet(a, pan || a.destination, 0.9, 0.9); }
     },
     // A rubbery bounce, played each time the tire hits the ground (follows its loudness and position).
+    // (a recorded bounce, CC0, trimmed so each one ends before the next landing)
     bounce() {
-      const at = t();
-      const o = a.createOscillator(), g = a.createGain(); o.type = 'sine';
-      o.frequency.setValueAtTime(330, at); o.frequency.exponentialRampToValueAtTime(120, at + 0.18);
-      g.gain.setValueAtTime(0.9, at); g.gain.exponentialRampToValueAtTime(0.001, at + 0.2);
-      o.connect(g).connect(out); o.start(at); o.stop(at + 0.22);
-      burst('bandpass', 600, 0.09, 1.2);
+      if (!samples.bounce) return;
+      const src = a.createBufferSource(); src.buffer = samples.bounce;
+      src.playbackRate.value = 0.96 + Math.random() * 0.08;              // tiny variety between bounces
+      src.connect(out); src.start();
     },
     stop() {
       out.gain.setTargetAtTime(0, t(), 0.04);
@@ -229,7 +228,7 @@ function squeal(a, dest, dur = 0.6, loud = 1) {
 // A short pained groan for the first two injuries (recordings: "Pain sounds" by EmoPreben, CC0).
 export function groan(a, which, dest = a.destination) {
   const b = samples['groan' + which]; if (!b) return;
-  const src = a.createBufferSource(), g = a.createGain(); src.buffer = b; g.gain.value = 1;
+  const src = a.createBufferSource(), g = a.createGain(); src.buffer = b; g.gain.value = 0.5;   // short and at half volume
   src.connect(g).connect(dest); src.start();
 }
 // A scream of fear and agony for the final injury: the recorded Wilhelm scream.

@@ -15,7 +15,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '2.3';
+const VERSION = '2.4';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -415,10 +415,13 @@ function spawn(lane, now, kind = null) {
     hz.y = lane === 'ground' ? groundY - h / 2 : groundY - charH * 0.95;   // flyers come at head height
     hz.vx = hz.dir * sp; hz.vy = 0;
     if (d.arc) {
-      // Thrown: starts a little low, rises to head height just as it reaches the player, then drops away.
+      // Thrown in a real arc: it leaves the thrower's hand low down (about knee height), rises under gravity to
+      // its highest point right at the player's head, then curves down behind them. Level as it passes, so
+      // ducking gets under it.
       hz.variant = Math.random() < 0.5 ? 'beans' : 'soup';
-      const T = Math.abs(hz.x - charX) / sp, arcH = charH * 0.3;      // ms until it reaches the player
-      hz.y += arcH; hz.vy = -2 * arcH / T; hz.g = 2 * arcH / (T * T);
+      const T = Math.abs(hz.x - charX) / sp;                          // ms until it reaches the player
+      const yTop = hz.y, y0 = groundY - charH * 0.25;                 // top of the arc = head height; start low
+      hz.g = 2 * (y0 - yTop) / (T * T); hz.y = y0; hz.vy = -hz.g * T;
     }
   }
   hz.voice = audio() ? createVoice(actx, kind) : null;
@@ -608,10 +611,12 @@ function updateHazards(now, dt, sk) {
     if (!hz.hit && circles.some(cr => circleHitsBox(cr, hz))) { hurt(now, hz); continue; }
     const d = HAZARDS[hz.kind];
     if (hz.lane === 'ufo') { updateUfo(hz, now, circles); continue; }
+    if (d.arc && hz.vy > 0 && hz.y + hz.h / 2 >= groundY) { hz.done = true; dodged(now, hz); sfx.thud(); continue; }   // the can lands
     const noseY = d.dives ? hz.y + Math.sin(hz.angle) * hz.w * 0.45 : hz.y + hz.h / 2;
     if (hz.lane === 'sky' && noseY >= groundY) {                       // hit the ground
       hz.done = true;
-      const blast = (x, r) => circles.some(cr => Math.hypot(cr.x - x, cr.y - groundY) < r + cr.r);
+      // Only a body part whose centre is inside the blast counts, so a player visibly outside it is safe.
+      const blast = (x, r) => circles.some(cr => Math.hypot(cr.x - x, cr.y - groundY) < r);
       if (d.explodes) {
         // The bomb takes out its own width on each side of it, sideways and upwards.
         const r = hz.w * 1.5;
@@ -652,16 +657,6 @@ function updateHazards(now, dt, sk) {
 function drawShadows(c, now) {
   for (const hz of G.hazards) {
     if (hz.flying) continue;
-    if (hz.lane === 'sky' && HAZARDS[hz.kind].explodes) {
-      // The bomb's blast zone: everything inside this dome is caught by the explosion.
-      const p = clamp((hz.y + hz.h) / (groundY + hz.h), 0, 1), r = hz.w * 1.5, pulse = 0.5 + 0.5 * Math.sin(now / (160 - 100 * p));
-      c.save();
-      c.fillStyle = `rgba(255,40,40,${0.08 + 0.17 * p * (0.6 + 0.4 * pulse)})`;
-      c.beginPath(); c.arc(hz.x, groundY, r, Math.PI, 0); c.closePath(); c.fill();
-      c.setLineDash([8, 6]); c.strokeStyle = `rgba(220,20,20,${0.35 + 0.5 * p})`; c.lineWidth = 2.5;
-      c.beginPath(); c.arc(hz.x, groundY, r, Math.PI, 0); c.stroke();
-      c.restore();
-    }
     if (hz.lane === 'sky') {
       const p = clamp((hz.y + hz.h) / (groundY + hz.h), 0.1, 1);
       c.fillStyle = `rgba(0,0,0,${0.15 + 0.25 * p})`;

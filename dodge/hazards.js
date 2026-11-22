@@ -10,7 +10,7 @@ const OUTLINE = '#1f1a2e';
 export const HAZARDS = {
   bomb:     { lane:'sky', scale:1.4, w:0.26, h:0.32, speed:0.95, draw:drawBomb, explodes:true },
   weight:   { lane:'sky', scale:1.5, w:0.42, h:0.32, speed:1.15, draw:drawWeight },
-  elephant: { lane:'sky', scale:5.4, w:0.56, h:0.44, speed:0.9,  draw:drawElephant },
+  elephant: { lane:'sky', scale:2.7, w:0.56, h:0.44, speed:0.9,  draw:drawElephant },
   anvil:    { lane:'sky', scale:1.4, w:0.38, h:0.22, speed:1.2,  draw:drawAnvil },
   plane:    { lane:'sky', scale:1.6, w:0.52, h:0.32, speed:1.05, hitR:0.24, dives:true, draw:drawPlane },
   car:      { lane:'ground', scale:1.5, w:0.64, h:0.3, speed:3.5,  draw:drawCar },
