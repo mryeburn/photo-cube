@@ -39,7 +39,10 @@
   .slot { display:flex; flex-direction:column; align-items:center; gap:6px; font-size:14px; color:#c5c9da; }
   .slot canvas { width:100%; aspect-ratio:1; border-radius:10px; background:#222; }
   .slot input { display:none; }
-  #win .stats { font-size:22px; margin:8px 0 20px; text-align:center; line-height:1.5; }
+  #win .stats { font-size:20px; margin:6px 0 14px; text-align:center; line-height:1.4; }
+  /* The win message sits in a card at the top so the finished photos stay in view. */
+  #win { inset:calc(12px + env(safe-area-inset-top, 0px)) 16px auto 16px; border-radius:18px;
+    background:#0d0e16; padding:16px; }
 </style>
 </head>
 <body>
@@ -202,6 +205,46 @@ const boxGeo = new THREE.BoxGeometry(0.98, 0.98, 0.98);
 const boxMat = new THREE.MeshBasicMaterial({ color:0x08080c });
 let cubies = [];
 
+// Stickers sit with gaps between them while playing (SEAM_GAP of each square). When the cube is
+// solved the gaps close, so every side shows one whole photo.
+// Once the gaps have closed, one whole photo per side is laid just in front of the squares,
+// so no hairlines show where squares meet. It turns with the cube (a solved cube may be turned).
+const SEAM_GAP = 0.92, SEAMLESS = 1;
+let seam = SEAMLESS, seamAnim = null;
+const wholeFaces = new THREE.Group();
+FACES.forEach((f, i) => {
+  const n = new V(...f.n), plane = new THREE.Mesh(new THREE.PlaneGeometry(3.004, 3.004), faceMats[i]);
+  plane.position.copy(n).multiplyScalar(1.502);
+  plane.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new V(...f.r), new V(...f.u), n));
+  wholeFaces.add(plane);
+});
+scene.add(wholeFaces);
+function applySeam(sz) {
+  seam = sz;
+  const off = (1 - sz) / 2;
+  cubies.forEach(c => c.children.forEach(st => {
+    const d = st.userData, uv = st.geometry.attributes.uv;
+    for (let k = 0; k < uv.count; k++)
+      uv.setXY(k, (d.col + off + d.base[2 * k] * sz) / 3, (d.row + off + d.base[2 * k + 1] * sz) / 3);
+    uv.needsUpdate = true;
+    st.scale.set(sz, sz, 1);
+  }));
+  setWholeFaces(sz >= SEAMLESS - 1e-6 && cubies.length > 0);
+}
+// Show the whole photos and hide the squares behind them (or the reverse).
+function setWholeFaces(on) {
+  wholeFaces.visible = on;
+  if (on) wholeFaces.quaternion.copy(cubies[0].quaternion);
+  cubies.forEach(c => { c.visible = !on; });
+}
+function animateSeam(to, ms) { seamAnim = { from:seam, to, t0:performance.now(), ms }; }
+function stepSeam(now) {
+  if (!seamAnim) return;
+  const p = Math.min(1, (now - seamAnim.t0) / seamAnim.ms), e = p * p * (3 - 2 * p);
+  applySeam(seamAnim.from + (seamAnim.to - seamAnim.from) * e);
+  if (p >= 1) seamAnim = null;
+}
+
 function buildCube() {
   cubies.forEach(c => scene.remove(c));
   cubies = [];
@@ -215,11 +258,9 @@ function buildCube() {
       const n = new V(...f.n), r = new V(...f.r), u = new V(...f.u);
       if (pos.dot(n) !== 1) return;
       const col = pos.dot(r) + 1, row = pos.dot(u) + 1;
-      const g = new THREE.PlaneGeometry(0.92, 0.92);
-      const uv = g.attributes.uv;
-      for (let k = 0; k < uv.count; k++)
-        uv.setXY(k, (col + 0.04 + uv.getX(k) * 0.92) / 3, (row + 0.04 + uv.getY(k) * 0.92) / 3);
+      const g = new THREE.PlaneGeometry(1, 1);
       const sticker = new THREE.Mesh(g, faceMats[i]);
+      sticker.userData = { col, row, base:Float32Array.from(g.attributes.uv.array) };
       sticker.position.copy(n).multiplyScalar(0.495);
       sticker.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(r, u, n));
       cubie.add(sticker);
@@ -227,6 +268,7 @@ function buildCube() {
     scene.add(cubie);
     cubies.push(cubie);
   }
+  applySeam(seam);
 }
 buildCube();
 
@@ -239,6 +281,7 @@ let current = null; // { axis, layer, dir, duration, start, group, user }
 function enqueue(axis, layer, dir, duration, user) { queue.push({ axis, layer, dir, duration, user }); }
 
 function beginTurn(t) {
+  if (wholeFaces.visible) { setWholeFaces(false); animateSeam(SEAM_GAP, 200); } // back to separate squares
   pivot.quaternion.identity(); pivot.updateMatrixWorld();
   t.group = cubies.filter(c => Math.round(c.position.getComponent(t.axis)) === t.layer);
   t.group.forEach(c => pivot.attach(c));
@@ -297,6 +340,8 @@ function updateHud() {
 let scrambleLeft = 0;
 function scramble(count, duration) {
   state = 'scrambling';
+  setWholeFaces(false);
+  animateSeam(SEAM_GAP, 250);
   startBtn.style.display = 'none';
   let lastAxis = -1;
   for (let k = 0; k < count; k++) {
@@ -319,6 +364,8 @@ function onTurnDone(t) {
   } else if (state === 'playing' && t.user) {
     moves++;
     if (isSolved()) win();
+  } else if (state === 'idle' && t.user && !queue.length && isSolved()) {
+    animateSeam(SEAMLESS, 600); // turned back to solved outside a game: show the whole photos again
   }
 }
 
@@ -331,13 +378,16 @@ function win() {
     'Time ' + fmt(time) + '<br>' + moves + ' moves' + (isBest ? '<br>New best time!' : '<br>Best ' + fmt(best));
   state = 'idle';
   resetBtn.style.display = 'none'; startBtn.style.display = '';
-  document.getElementById('win').classList.add('show');
+  // Close the gaps first so the whole photo appears, then show the result.
+  animateSeam(SEAMLESS, 900);
+  setTimeout(() => document.getElementById('win').classList.add('show'), 1300);
 }
 
 startBtn.onclick = () => { if (state === 'idle' && !current && !queue.length) scramble(25, 110); };
 resetBtn.onclick = () => {
   queue.length = 0; if (current) finishTurn();
   buildCube(); state = 'idle'; resetBtn.style.display = 'none'; startBtn.style.display = '';
+  animateSeam(SEAMLESS, 600);
 };
 document.getElementById('againBtn').onclick = () => document.getElementById('win').classList.remove('show');
 document.getElementById('photosBtn').onclick = () => document.getElementById('setup').classList.add('show');
@@ -429,6 +479,7 @@ document.getElementById('viewDown').onclick = () => animateView(LOCAL_X, -Math.P
 function frame(now) {
   stepTurns(now);
   stepView(now);
+  stepSeam(now);
   updateHud();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
