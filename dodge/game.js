@@ -15,7 +15,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '2.1';
+const VERSION = '2.2';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -414,6 +414,12 @@ function spawn(lane, now, kind = null) {
     hz.x = hz.dir > 0 ? -w / 2 - lead : W + w / 2 + lead;
     hz.y = lane === 'ground' ? groundY - h / 2 : groundY - charH * 0.95;   // flyers come at head height
     hz.vx = hz.dir * sp; hz.vy = 0;
+    if (d.arc) {
+      // Thrown: starts a little low, rises to head height just as it reaches the player, then drops away.
+      hz.variant = Math.random() < 0.5 ? 'beans' : 'soup';
+      const T = Math.abs(hz.x - charX) / sp, arcH = charH * 0.3;      // ms until it reaches the player
+      hz.y += arcH; hz.vy = -2 * arcH / T; hz.g = 2 * arcH / (T * T);
+    }
   }
   hz.voice = audio() ? createVoice(actx, kind) : null;
   G.hazards.push(hz);
@@ -584,7 +590,12 @@ function updateHazards(now, dt, sk) {
     if (hz.g && !hz.flying) hz.vy += hz.g * dt;
     hz.x += hz.vx * dt; hz.y += hz.vy * dt;
     if (hz.kind === 'can') hz.spin += dt * 0.012;
-    if (HAZARDS[hz.kind].bounce && !hz.flying) hz.y = groundY - hz.h / 2 - Math.abs(Math.sin((now - hz.born) / 160)) * charH * 0.12;
+    if (HAZARDS[hz.kind].bounce && !hz.flying) {
+      const ph = Math.max(0, now - hz.born) / 160;
+      hz.y = groundY - hz.h / 2 - Math.abs(Math.sin(ph)) * charH * 0.12;
+      const landings = Math.floor(ph / Math.PI);                       // it touches the ground each half-turn of the sine
+      if (landings !== hz.landings) { hz.landings = landings; if (hz.voice && hz.voice.bounce) { try { hz.voice.bounce(); } catch (e) {} } }
+    }
     if (hz.flying) { silence(hz); hz.vy += 0.0025 * dt; hz.spin += dt * 0.01; if (hz.y > H + hz.h) hz.done = true; continue; }
     if (hz.voice) {                                                    // louder the closer it gets
       const body = { x: charX, y: groundY - charH * 0.5 };

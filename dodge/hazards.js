@@ -18,9 +18,9 @@ export const HAZARDS = {
   tire:     { lane:'ground', scale:1.3, w:0.26, h:0.26, speed:2.0, draw:drawTire, bounce:true },
   eagle:    { lane:'air', scale:2.6, hitH:0.3, w:0.44, h:0.2, speed:1.4, draw:drawEagle },
   missile:  { lane:'air', twoPass:true, scale:1.5, w:0.5, h:0.12, speed:3.2, draw:drawMissile },
-  arrow:    { lane:'air', scale:1.3, w:0.52, h:0.07, speed:2.6,  draw:drawArrow },
+  arrow:    { lane:'air', scale:1.3, w:0.52, h:0.07, speed:7.8,  draw:drawArrow },
   ufo:      { lane:'ufo', scale:1.5, w:0.5, h:0.24, speed:0.5, draw:drawUfo },
-  can:      { lane:'air', scale:1.4, w:0.15, h:0.19, speed:1.1, draw:drawCan },
+  can:      { lane:'air', scale:2.3, w:0.15, h:0.19, speed:2.2, hitH:0.32, arc:true, noMirror:true, draw:drawCan },   // thrown in a shallow arc
 };
 export const BY_LANE = { sky:[], ground:[], air:[], ufo:[] };
 for (const [k, d] of Object.entries(HAZARDS)) BY_LANE[d.lane].push(k);
@@ -35,8 +35,8 @@ export function drawHazard(c, hz, s, now) {
   const d = HAZARDS[hz.kind];
   c.save(); c.translate(hz.x, hz.y);
   if (hz.spin) c.rotate(hz.spin);
-  if (hz.dir < 0) c.scale(-1, 1);
-  styled(c); d.draw(c, s * d.scale, now - hz.born);   // drawn bigger, with outlines kept the same thickness
+  if (hz.dir < 0 && !d.noMirror) c.scale(-1, 1);                      // face the way it travels (not labels)
+  styled(c); d.draw(c, s * d.scale, now - hz.born, hz);   // drawn bigger, with outlines kept the same thickness
   c.restore();
 }
 
@@ -173,48 +173,88 @@ function drawArrow(c, s) {
   c.beginPath(); c.moveTo(0.27 * s, 0); c.lineTo(0.19 * s, -0.035 * s); c.lineTo(0.19 * s, 0.035 * s); c.closePath(); fillStroke(c, '#adb5bd');
   for (const sy of [-1, 1]) { c.beginPath(); c.moveTo(-0.26 * s, sy * 0.035 * s); c.lineTo(-0.18 * s, 0); c.lineTo(-0.2 * s, sy * 0.035 * s); c.closePath(); fillStroke(c, '#e03131'); }
 }
-function drawCan(c, s) {
-  rr(c, -0.07 * s, -0.09 * s, 0.14 * s, 0.18 * s, 0.02 * s); fillStroke(c, '#ced4da');
-  c.fillStyle = '#e03131'; c.fillRect(-0.07 * s, -0.05 * s, 0.14 * s, 0.1 * s);
-  c.fillStyle = '#fff'; c.font = `bold ${0.03 * s}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('TOMATO', 0, 0);
-  circle(c, 0.035 * s, 0.03 * s, 0.015 * s, '#ff6b6b');
-  rr(c, -0.07 * s, -0.09 * s, 0.14 * s, 0.18 * s, 0.02 * s); c.stroke();
+// A tin can: beans (blue label with beans) or soup (red and white label). hz.variant picks which.
+function drawCan(c, s, t, hz) {
+  const beans = !hz || hz.variant !== 'soup';
+  const w = 0.14 * s, h = 0.18 * s;
+  rr(c, -w / 2, -h / 2, w, h, 0.015 * s); fillStroke(c, '#ced4da');                      // tin
+  c.save(); rr(c, -w / 2, -h / 2, w, h, 0.015 * s); c.clip();
+  if (beans) {
+    c.fillStyle = '#1c7ed6'; c.fillRect(-w / 2, -h * 0.36, w, h * 0.72);
+    c.fillStyle = '#fff'; c.font = `900 ${0.034 * s}px "Trebuchet MS", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('BEANS', 0, -h * 0.17);
+    c.fillStyle = '#e8590c';                                                                   // a little pile of baked beans
+    for (const [x, y] of [[-0.03, 0.1], [0, 0.11], [0.03, 0.1], [-0.015, 0.07], [0.015, 0.07], [0, 0.04]]) {
+      c.beginPath(); c.ellipse(x * s * 0.8, y * s * 0.8, 0.013 * s, 0.009 * s, 0.4, 0, 7); c.fill();
+    }
+  } else {
+    c.fillStyle = '#e03131'; c.fillRect(-w / 2, -h * 0.36, w, h * 0.36);
+    c.fillStyle = '#fff'; c.fillRect(-w / 2, 0, w, h * 0.36);
+    c.fillStyle = '#fff'; c.font = `900 ${0.036 * s}px "Trebuchet MS", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('SOUP', 0, -h * 0.18);
+    c.fillStyle = '#ffd43b'; c.beginPath(); c.arc(0, h * 0.18, 0.022 * s, 0, 7); c.fill();       // gold medallion
+  }
+  c.restore(); styled(c);
+  for (const y of [-h / 2 + 0.012 * s, h / 2 - 0.012 * s]) { c.strokeStyle = '#868e96'; c.lineWidth = 2; c.beginPath(); c.moveTo(-w / 2, y); c.lineTo(w / 2, y); c.stroke(); }  // rims
+  styled(c); rr(c, -w / 2, -h / 2, w, h, 0.015 * s); c.stroke();
 }
 
 // Size on screen, in character heights.
 export const sizeOf = kind => ({ w: HAZARDS[kind].w * HAZARDS[kind].scale, h: HAZARDS[kind].h * HAZARDS[kind].scale });
 
-// What is left after a plane crashes: a glowing hunk of molten metal with a tail fin sticking out,
-// burning and smoking. age: ms since the crash; s: character height.
+// What is left after a plane crashes: a burning hunk of molten metal with a tail fin sticking out. The fire
+// bursts up tall at first, then settles; flickering tongues of flame in layers (red, orange, yellow, a white-hot
+// core), sparks drifting up, a glow on the ground, and a column of black smoke. age: ms since the crash.
 export function drawWreck(c, x, y, s, age, dir) {
   const fade = Math.min(1, Math.max(0, (4200 - age) / 900));
+  const burst = 1 + 1.2 * Math.max(0, 1 - age / 700);                       // flames leap up, then settle
+  const tsec = age / 1000;
   c.save(); c.globalAlpha = fade; c.translate(x, y);
-  // smoke
-  for (let i = 0; i < 6; i++) {
-    const t = ((age / 1000 + i * 0.35) % 2.1), r = s * (0.06 + t * 0.09);
-    c.fillStyle = `rgba(60,60,60,${0.45 * (1 - t / 2.1)})`;
-    c.beginPath(); c.arc(Math.sin(i * 2.3 + age / 400) * s * 0.08 + t * s * 0.05 * dir, -s * 0.25 - t * s * 0.35, r, 0, 7); c.fill();
+  // glow on the ground
+  const glow = c.createRadialGradient(0, 0, 0, 0, 0, s * 0.6);
+  glow.addColorStop(0, 'rgba(255,170,60,0.55)'); glow.addColorStop(1, 'rgba(255,120,0,0)');
+  c.fillStyle = glow; c.beginPath(); c.ellipse(0, 0, s * 0.6, s * 0.16, 0, 0, 7); c.fill();
+  // black smoke column, billowing and drifting
+  for (let i = 0; i < 9; i++) {
+    const t = (tsec * 0.8 + i / 9) % 1, r = s * (0.07 + t * 0.2);
+    c.fillStyle = `rgba(40,40,40,${0.55 * (1 - t)})`;
+    c.beginPath(); c.arc(Math.sin(i * 1.7 + tsec * 1.3) * s * 0.06 + t * s * 0.15 * dir, -s * 0.3 - t * s * 0.9, r, 0, 7); c.fill();
   }
-  // tail fin poking out of the wreck
+  // tail fin
   c.save(); c.scale(dir, 1); c.rotate(-0.5);
-  c.fillStyle = '#868e96'; c.strokeStyle = OUTLINE; c.lineWidth = 3;
-  c.beginPath(); c.moveTo(-s * 0.18, -s * 0.02); c.lineTo(-s * 0.3, -s * 0.2); c.lineTo(-s * 0.12, -s * 0.06); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = '#495057'; c.strokeStyle = '#1f1a2e'; c.lineWidth = 3;
+  c.beginPath(); c.moveTo(-s * 0.18, -s * 0.02); c.lineTo(-s * 0.3, -s * 0.22); c.lineTo(-s * 0.12, -s * 0.06); c.closePath(); c.fill(); c.stroke();
   c.restore();
   // molten hunk
-  const glow = 0.6 + 0.4 * Math.sin(age / 120);
-  c.fillStyle = '#495057'; c.strokeStyle = OUTLINE; c.lineWidth = 3;
-  c.beginPath(); c.moveTo(-s * 0.22, 0); c.quadraticCurveTo(-s * 0.2, -s * 0.12, -s * 0.05, -s * 0.13);
-  c.quadraticCurveTo(s * 0.08, -s * 0.18, s * 0.2, -s * 0.08); c.quadraticCurveTo(s * 0.25, -s * 0.02, s * 0.22, 0); c.closePath(); c.fill(); c.stroke();
-  c.fillStyle = `rgba(255,${90 + 60 * glow},0,${0.85})`;
-  c.beginPath(); c.ellipse(0, -s * 0.05, s * 0.12, s * 0.04, 0.1, 0, 7); c.fill();
-  c.fillStyle = `rgba(255,230,120,${glow})`;
-  c.beginPath(); c.ellipse(s * 0.02, -s * 0.05, s * 0.05, s * 0.018, 0.1, 0, 7); c.fill();
-  // flames
-  for (let i = -2; i <= 2; i++) {
-    const flick = Math.sin(age / 70 + i * 1.7) * 0.5 + 0.5, fh = s * (0.18 + 0.14 * flick) * (age < 2500 ? 1 : fade);
-    const fx = i * s * 0.08;
-    c.fillStyle = '#ff6b00'; c.beginPath(); c.moveTo(fx - s * 0.05, -s * 0.06); c.quadraticCurveTo(fx, -s * 0.06 - fh * 1.2, fx + s * 0.05, -s * 0.06); c.fill();
-    c.fillStyle = '#ffd43b'; c.beginPath(); c.moveTo(fx - s * 0.025, -s * 0.07); c.quadraticCurveTo(fx, -s * 0.07 - fh * 0.7, fx + s * 0.025, -s * 0.07); c.fill();
+  const heat = 0.6 + 0.4 * Math.sin(age / 110);
+  c.fillStyle = '#343a40'; c.strokeStyle = '#1f1a2e'; c.lineWidth = 3;
+  c.beginPath(); c.moveTo(-s * 0.24, 0); c.quadraticCurveTo(-s * 0.22, -s * 0.13, -s * 0.05, -s * 0.14);
+  c.quadraticCurveTo(s * 0.09, -s * 0.2, s * 0.22, -s * 0.08); c.quadraticCurveTo(s * 0.27, -s * 0.02, s * 0.24, 0); c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = `rgba(255,${80 + 70 * heat},20,0.9)`; c.beginPath(); c.ellipse(0, -s * 0.05, s * 0.14, s * 0.045, 0.1, 0, 7); c.fill();
+  c.fillStyle = `rgba(255,240,170,${heat})`; c.beginPath(); c.ellipse(s * 0.02, -s * 0.05, s * 0.06, s * 0.02, 0.1, 0, 7); c.fill();
+  // flames: overlapping tongues that wobble and flicker, drawn back to front
+  const tongue = (fx, base, height, width, colour, seed) => {
+    const sway = Math.sin(tsec * 9 + seed) * width * 0.6 + Math.sin(tsec * 23 + seed * 2) * width * 0.25;
+    c.fillStyle = colour; c.beginPath();
+    c.moveTo(fx - width, base);
+    c.bezierCurveTo(fx - width * 1.1, base - height * 0.45, fx + sway - width * 0.4, base - height * 0.7, fx + sway, base - height);
+    c.bezierCurveTo(fx + sway + width * 0.4, base - height * 0.7, fx + width * 1.1, base - height * 0.45, fx + width, base);
+    c.closePath(); c.fill();
+  };
+  const settle = age < 2800 ? 1 : fade;
+  for (const [layer, colour, k] of [[0, 'rgba(200,30,10,0.85)', 1.0], [1, 'rgba(255,110,0,0.9)', 0.78], [2, 'rgba(255,200,40,0.95)', 0.55], [3, 'rgba(255,250,220,0.95)', 0.3]]) {
+    for (let i = -3; i <= 3; i++) {
+      const seed = i * 2.1 + layer, flick = 0.75 + 0.25 * Math.sin(tsec * 14 + seed * 3);
+      const hgt = s * (0.32 - Math.abs(i) * 0.05) * k * flick * burst * settle;
+      if (hgt <= 0) continue;
+      tongue(i * s * 0.06, -s * 0.04, hgt, s * (0.05 - layer * 0.008), colour, seed);
+    }
+  }
+  // sparks drifting up
+  for (let i = 0; i < 14; i++) {
+    const t = (tsec * 0.9 + i / 14) % 1, sx = Math.sin(i * 3.3) * s * 0.2 + Math.sin(tsec * 3 + i) * s * 0.04;
+    c.fillStyle = `rgba(255,${180 + 60 * Math.sin(i)},60,${1 - t})`;
+    c.beginPath(); c.arc(sx, -s * 0.1 - t * s * 0.7 * burst, s * 0.008, 0, 7); c.fill();
   }
   c.restore();
 }

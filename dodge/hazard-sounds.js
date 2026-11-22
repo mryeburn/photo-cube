@@ -38,10 +38,10 @@ const SOUNDS = {
   plane:    { base:0.22, whistle:true, engine:[220, 'sawtooth', 900] },
   car:      { base:1.0,  revs:true, floor:0.3 },                        // loud, revving engine
   pig:      { base:0.45, every:[0.75, 'squeal'], charge:true },
-  tire:     { base:0.3,  rumble:180, every:[0.32, 'thump'] },
+  tire:     { base:0.6 },                                              // bounces: see bounce()
   eagle:    { base:0.35, every:[0.22, 'flap'], cry:'screech' },
   missile:  { base:0.3,  hiss:1400, engine:[110, 'sawtooth', 500] },
-  arrow:    { base:0.2,  tone:[2600, 'sine'] },
+  arrow:    { base:0.5,  twang:true },                                   // a bow twang, then silent flight
   can:      { base:0.3,  every:[0.15, 'clank'] },
   ufo:      { base:0.3,  warble:true, floor:0.15 },
 };
@@ -107,6 +107,8 @@ export function createVoice(a, kind) {
     if (eng) { nodes.push(eng); revRate = eng.playbackRate; }
   }
   const born = performance.now();
+  // The arrow: a single bow twang as it is loosed, then it flies silently.
+  if (cfg.twang) twang(a, pan || a.destination);
   // The pig announces its charge with a squeal at full volume.
   if (cfg.charge) setTimeout(() => squeal(a, pan || a.destination, 0.8, 0.8), 50);
   let nextEvent = 0, nextAlso = 0, cried = false, lastX = null;
@@ -138,6 +140,15 @@ export function createVoice(a, kind) {
       if (cfg.also && now >= nextAlso) { EVENTS[cfg.also[1]](); nextAlso = now + cfg.also[0] * 1000; }
       if (cfg.cry && !cried && prox > 0.45) { cried = true; EVENTS[cfg.cry](); }
       if (cfg.trumpet && !trumpetedAgain && fall > 0.55) { trumpetedAgain = true; trumpet(a, pan || a.destination, 0.9, 0.9); }
+    },
+    // A rubbery bounce, played each time the tire hits the ground (follows its loudness and position).
+    bounce() {
+      const at = t();
+      const o = a.createOscillator(), g = a.createGain(); o.type = 'sine';
+      o.frequency.setValueAtTime(330, at); o.frequency.exponentialRampToValueAtTime(120, at + 0.18);
+      g.gain.setValueAtTime(0.9, at); g.gain.exponentialRampToValueAtTime(0.001, at + 0.2);
+      o.connect(g).connect(out); o.start(at); o.stop(at + 0.22);
+      burst('bandpass', 600, 0.09, 1.2);
     },
     stop() {
       out.gain.setTargetAtTime(0, t(), 0.04);
@@ -359,4 +370,20 @@ export function knockout(a, dest = a.destination) {
   for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
   const s = a.createBufferSource(), f = a.createBiquadFilter(), sg = a.createGain();
   s.buffer = buf; f.type = 'lowpass'; f.frequency.value = 300; sg.gain.value = 1; s.connect(f).connect(sg).connect(dest); s.start(at + 0.6);
+}
+
+// A bow being loosed: the string's twang (a plucked, slightly bending note) and the "thwip" of release.
+export function twang(a, dest = a.destination) {
+  const at = a.currentTime;
+  for (const [type, f, vol] of [['triangle', 196, 0.6], ['sawtooth', 392, 0.18], ['sine', 588, 0.12]]) {
+    const o = a.createOscillator(), g = a.createGain(); o.type = type;
+    o.frequency.setValueAtTime(f * 1.04, at); o.frequency.exponentialRampToValueAtTime(f, at + 0.08);
+    g.gain.setValueAtTime(vol, at); g.gain.exponentialRampToValueAtTime(0.001, at + 0.45);
+    o.connect(g).connect(dest); o.start(at); o.stop(at + 0.5);
+  }
+  const len = Math.floor(a.sampleRate * 0.12), buf = a.createBuffer(1, len, a.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+  const n = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+  n.buffer = buf; f.type = 'bandpass'; f.frequency.value = 2800; f.Q.value = 1.2; g.gain.value = 0.5;
+  n.connect(f).connect(g).connect(dest); n.start(at);
 }
