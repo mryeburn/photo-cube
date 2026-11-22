@@ -43,7 +43,7 @@ const SOUNDS = {
   eagle:    { base:0.35, every:[0.22, 'flap'], cry:'screech' },
   missile:  { base:0.3,  hiss:1400, engine:[110, 'sawtooth', 500] },
   arrow:    { base:0.5,  twang:true },                                   // a bow twang, then silent flight
-  can:      { base:0.3,  every:[0.15, 'clank'] },
+  tomahawk: { base:0.55, every:[0.21, 'whup'], steady:true },        // whup-whup as it spins
   ufo:      { base:0.3,  warble:true, floor:0.15 },
 };
 
@@ -84,6 +84,7 @@ export function createVoice(a, kind) {
     caw: () => { ping('sawtooth', 640, 430, 0.22, 0.4); },
     clank: () => { ping('triangle', 1300 + Math.random() * 500, 900, 0.08, 0.6); },
     screech: () => ping('sine', 2400, 1500, 0.6, 0.6),
+    whup: () => burst('bandpass', 850, 0.13, 1.1),               // a spinning blade cutting the air
     squeal: () => squeal(a, out, 0.45 + Math.random() * 0.25, 0.9),
   };
 
@@ -137,7 +138,7 @@ export function createVoice(a, kind) {
         engine.frequency.setTargetAtTime(f, t(), 0.08);
       }
       lastX = hz.x;
-      if (cfg.every && now >= nextEvent) { EVENTS[cfg.every[1]](); nextEvent = now + cfg.every[0] * 1000 * (1 - 0.35 * prox); }
+      if (cfg.every && now >= nextEvent) { EVENTS[cfg.every[1]](); nextEvent = now + cfg.every[0] * 1000 * (cfg.steady ? 1 : 1 - 0.35 * prox); }
       if (cfg.also && now >= nextAlso) { EVENTS[cfg.also[1]](); nextAlso = now + cfg.also[0] * 1000; }
       if (cfg.cry && !cried && prox > 0.45) { cried = true; EVENTS[cfg.cry](); }
       if (cfg.trumpet && !trumpetedAgain && fall > 0.55) { trumpetedAgain = true; trumpet(a, pan || a.destination, 0.9, 0.9); }

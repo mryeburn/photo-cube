@@ -15,7 +15,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '2.4';
+const VERSION = '2.5';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -188,12 +188,23 @@ function updateMotion(now) {
 
 // Where the character stands: follows the player's head sideways, exaggerated.
 let charX = 0;
+const xHistory = [];                                              // recent positions, to know how fast the player was moving
 function updateCharX(now) {
-  if (motion.jump) { motion.vx = 0; return; }                     // no running in mid-air
+  const lastT = xHistory.length ? xHistory[xHistory.length - 1].t : now;
+  if (motion.jump) {
+    // A running jump: carry on sideways at the speed the player was moving when they took off.
+    const j = motion.jump;
+    if (j.vx === undefined) { const old = xHistory.find(h => now - h.t <= 180) || { t: now, x: charX }; j.vx = now > old.t ? (charX - old.x) / (now - old.t) : 0; }
+    charX = clamp(charX + j.vx * (now - lastT), W * 0.06, W * 0.94);
+    motion.vx = 0;
+    xHistory.push({ t: now, x: charX }); while (xHistory.length && now - xHistory[0].t > 300) xHistory.shift();
+    return;
+  }
   const target = clamp(W / 2 + motion.side * charH * MOVE_GAIN, W * 0.06, W * 0.94);
   const before = charX;
   charX += (target - charX) * 0.5;
   motion.vx = charX - before;
+  xHistory.push({ t: now, x: charX }); while (xHistory.length && now - xHistory[0].t > 300) xHistory.shift();
   motion.run += Math.abs(motion.vx) / (charH * 0.12);           // leg cycle for the running animation
 }
 
@@ -386,7 +397,7 @@ const speedUp = now => 0.8 + 0.55 * ramp(now) + Math.min(0.25, after3(now) / 600
 // Two things at once (e.g. a weight landing as a car arrives): none before 70 s, about half of them by 3 min.
 const comboChance = now => clamp((elapsed(now) - 70) / 110, 0, 1) * 0.5;
 
-function spawn(lane, now, kind = null) {
+function spawn(lane, now, kind = null, aimed = false) {
   if (lane === 'villain') return spawnVillain(now);
   kind = kind || BY_LANE[lane][Math.floor(Math.random() * BY_LANE[lane].length)];
   const d = HAZARDS[kind], s = charH, w = sizeOf(kind).w * s, h = sizeOf(kind).h * s, sp = d.speed * s * speedUp(now) / 1000;
@@ -394,7 +405,7 @@ function spawn(lane, now, kind = null) {
   if (lane === 'sky' && d.dives) {
     // A plane dives at 30 to 70 degrees from either side, aimed at the player, nose first.
     const th = (30 + Math.random() * 40) * Math.PI / 180, dir = Math.random() < 0.5 ? 1 : -1;
-    const tx = clamp(charX + (Math.random() - 0.5) * 0.3 * s, w / 2, W - w / 2);
+    const tx = skyTarget(w, aimed);
     const v = 2.0 * s * speedUp(now) / 1000, L = (groundY + h) / Math.sin(th);
     hz.dir = dir; hz.spin = dir > 0 ? th : -th; hz.angle = th;
     hz.x = tx - dir * Math.cos(th) * L; hz.y = groundY - L * Math.sin(th);
@@ -406,7 +417,8 @@ function spawn(lane, now, kind = null) {
     hz.vx = hz.dir * sp; hz.vy = 0; hz.shots = 0; hz.nextShot = now + 1400 + Math.random() * 800; hz.aim = null;
   } else if (lane === 'sky') {
     // Falling things start slowly and speed up under gravity.
-    hz.x = clamp(charX + (Math.random() - 0.5) * 0.25 * s, w / 2, W - w / 2);   // aimed at the player
+    hz.x = skyTarget(w, aimed);
+    if (d.tumbles) { hz.spin = (Math.random() - 0.5) * 1.2; hz.spinV = (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.5) / 1000; }   // rolls as it falls
     hz.y = -h; hz.vx = 0; hz.vy = FALL_V0 * s; hz.g = fallGravity(kind, now);
   } else {
     hz.dir = Math.random() < 0.5 ? 1 : -1;
@@ -429,6 +441,16 @@ function spawn(lane, now, kind = null) {
   return hz;
 }
 
+// Where a falling object lands: 40% of the time aimed at the player, otherwise 1 to 3 character widths
+// clear of them to the left or right. (Timed combos are always aimed.)
+function skyTarget(w, aimed) {
+  const s = charH, bodyHalf = s * 0.15, width = s * 0.3;
+  if (aimed || Math.random() < 0.4) return clamp(charX + (Math.random() - 0.5) * 0.25 * s, w / 2, W - w / 2);
+  let side = Math.random() < 0.5 ? -1 : 1;
+  const off = w / 2 + bodyHalf + (1 + Math.random() * 2) * width;
+  if (charX + side * off < w / 2 || charX + side * off > W - w / 2) side = -side;   // no room that side: use the other
+  return clamp(charX + side * off, w / 2, W - w / 2);
+}
 const FALL_V0 = 0.25 / 1000;                                   // starting fall speed, character heights per ms
 const fallGravity = (kind, now) => 0.9 * charH / 1e6 * (HAZARDS[kind].speed * speedUp(now)) ** 2;   // px per ms²
 
@@ -440,7 +462,7 @@ function spawnCombo(now) {
   const kinds = BY_LANE.sky.filter(k => !HAZARDS[k].dives), kind = kinds[Math.floor(Math.random() * kinds.length)];
   const D = groundY - charH * 0.5 + sizeOf(kind).h * charH, v0 = FALL_V0 * charH, g = fallGravity(kind, now);
   const fallMs = (-v0 + Math.sqrt(v0 * v0 + 2 * g * D)) / g;    // time to fall to body height under gravity
-  G.pending.push({ at: now + Math.max(0, arriveMs - fallMs + (Math.random() - 0.5) * 600), lane: 'sky', kind });
+  G.pending.push({ at: now + Math.max(0, arriveMs - fallMs + (Math.random() - 0.5) * 600), lane: 'sky', kind, aimed: true });
 }
 function silence(hz) { if (hz.voice) { hz.voice.stop(); hz.voice = null; } }
 function silenceAll() { G.hazards.forEach(silence); }
@@ -449,8 +471,8 @@ function nextLane() {
   // Teach the three moves first, then mix them up.
   const teach = ['sky', 'ground', 'air'];
   if (G.tutorial < teach.length) return teach[G.tutorial++];
-  if (elapsed(performance.now()) > 150 && Math.random() < 0.13) return 'ufo';   // UFOs only after 2.5 minutes
-  if (elapsed(performance.now()) > 90 && !G.villain && Math.random() < 0.12) return 'villain';
+  if (elapsed(performance.now()) > 45 && Math.random() < 0.13) return 'ufo';    // UFOs after 45 seconds
+  // (the masked brute is on hold for now; spawnVillain() is kept for when he returns)
   const r = Math.random();
   return r < 0.38 ? 'sky' : r < 0.69 ? 'ground' : 'air';
 }
@@ -593,7 +615,8 @@ function updateHazards(now, dt, sk) {
     if (hz.done) continue;
     if (hz.g && !hz.flying) hz.vy += hz.g * dt;
     hz.x += hz.vx * dt; hz.y += hz.vy * dt;
-    if (hz.kind === 'can') hz.spin += dt * 0.012;
+    if (HAZARDS[hz.kind].spins) hz.spin += hz.dir * dt * 0.015;      // a tomahawk turns end over end
+    if (hz.spinV && !hz.flying) hz.spin += hz.spinV * dt;              // the elephant rolls as it falls
     if (HAZARDS[hz.kind].bounce && !hz.flying) {
       const ph = Math.max(0, now - hz.born) / 160;
       hz.y = groundY - hz.h / 2 - Math.abs(Math.sin(ph)) * charH * 0.12;
@@ -611,7 +634,11 @@ function updateHazards(now, dt, sk) {
     if (!hz.hit && circles.some(cr => circleHitsBox(cr, hz))) { hurt(now, hz); continue; }
     const d = HAZARDS[hz.kind];
     if (hz.lane === 'ufo') { updateUfo(hz, now, circles); continue; }
-    if (d.arc && hz.vy > 0 && hz.y + hz.h / 2 >= groundY) { hz.done = true; dodged(now, hz); sfx.thud(); continue; }   // the can lands
+    if (d.arc && hz.vy > 0 && hz.y >= groundY - hz.h * 0.4) {          // the tomahawk lands, blade first, and sticks
+      hz.done = true; dodged(now, hz); sfx.thud(); tone(180, 0.12, 'square', 0.12);
+      G.effects.push({ type:'landed', hz:{ ...hz, done:false, flying:false, y: groundY - hz.w * 0.36, spin: hz.dir * 1.1 }, born: now, dur: 1400 });
+      continue;
+    }
     const noseY = d.dives ? hz.y + Math.sin(hz.angle) * hz.w * 0.45 : hz.y + hz.h / 2;
     if (hz.lane === 'sky' && noseY >= groundY) {                       // hit the ground
       hz.done = true;
@@ -635,7 +662,7 @@ function updateHazards(now, dt, sk) {
         sfx.thud(); G.shake = hz.kind === 'elephant' ? 28 : 8;
         if (hz.kind === 'elephant') setTimeout(sfx.thud, 90);
         G.effects.push({ type:'dust', x: hz.x, y: groundY, born: now, w: hz.w, dur: 900 });
-        G.effects.push({ type:'landed', hz:{ ...hz, done:false, flying:false, y: groundY - hz.h / 2 }, born: now, dur: 700 });
+        G.effects.push({ type:'landed', hz:{ ...hz, done:false, flying:false, y: groundY - hz.h / 2, spin: 0, spinV: 0 }, born: now, dur: 700 });
       }
       dodged(now, hz);
     } else if (hz.lane !== 'sky' && ((hz.dir > 0 && hz.x - hz.w / 2 > W) || (hz.dir < 0 && hz.x + hz.w / 2 < 0))) {
@@ -706,7 +733,7 @@ function drawEffects(c, now) {
       for (let i = -2; i <= 2; i++) { c.beginPath(); c.arc(e.x + i * e.w * 0.3 * (1 + t), e.y - 8 - t * 20, charH * 0.04 * (1 + t), 0, 7); c.fill(); }
       c.globalAlpha = 1;
     } else if (e.type === 'landed') {                                    // the object rests on the ground, then fades
-      c.globalAlpha = clamp(1 - (now - e.born - 400) / 300, 0, 1); drawHazard(c, e.hz, charH, now); c.globalAlpha = 1;
+      c.globalAlpha = clamp((e.dur - (now - e.born)) / 300, 0, 1); drawHazard(c, e.hz, charH, now); c.globalAlpha = 1;
     }
   }
 }
@@ -785,7 +812,7 @@ function gameFrame(now, dt) {
           G.nextSpawn = now + spawnGap(now);
         }
       }
-      for (const p of G.pending) if (now >= p.at) { spawn(p.lane, now, p.kind); p.done = true; }
+      for (const p of G.pending) if (now >= p.at) { spawn(p.lane, now, p.kind, p.aimed); p.done = true; }
       G.pending = G.pending.filter(p => !p.done);
       updateHazards(now, dt, sk);
       updateVillain(now, dt); handlePunch(now);
@@ -1003,4 +1030,4 @@ initVision()
 requestAnimationFrame(loop);
 
 // Hooks for automated testing.
-window.__dg = { G, B, motion, buildBody, spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind) => spawn(lane, performance.now(), kind) };
+window.__dg = { G, B, motion, buildBody, spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed) };

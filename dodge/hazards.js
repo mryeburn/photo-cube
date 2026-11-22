@@ -10,7 +10,7 @@ const OUTLINE = '#1f1a2e';
 export const HAZARDS = {
   bomb:     { lane:'sky', scale:1.4, w:0.26, h:0.32, speed:0.95, draw:drawBomb, explodes:true },
   weight:   { lane:'sky', scale:1.5, w:0.42, h:0.32, speed:1.15, draw:drawWeight },
-  elephant: { lane:'sky', scale:2.7, w:0.56, h:0.44, speed:0.9,  draw:drawElephant },
+  elephant: { lane:'sky', scale:2.7, w:0.56, h:0.44, speed:0.9, hitR:0.5, tumbles:true, draw:drawElephant },
   anvil:    { lane:'sky', scale:1.4, w:0.38, h:0.22, speed:1.2,  draw:drawAnvil },
   plane:    { lane:'sky', scale:1.6, w:0.52, h:0.32, speed:1.05, hitR:0.24, dives:true, draw:drawPlane },
   car:      { lane:'ground', scale:1.5, w:0.64, h:0.3, speed:3.5,  draw:drawCar },
@@ -20,7 +20,7 @@ export const HAZARDS = {
   missile:  { lane:'air', twoPass:true, scale:1.5, w:0.5, h:0.12, speed:3.2, draw:drawMissile },
   arrow:    { lane:'air', scale:1.3, w:0.52, h:0.07, speed:7.8,  draw:drawArrow },
   ufo:      { lane:'ufo', scale:1.5, w:0.5, h:0.24, speed:0.5, draw:drawUfo },
-  can:      { lane:'air', scale:2.3, w:0.15, h:0.19, speed:2.2, hitH:0.32, arc:true, noMirror:true, draw:drawCan },   // thrown in a shallow arc
+  tomahawk: { lane:'air', scale:2.2, w:0.3, h:0.12, speed:2.2, hitR:0.17, arc:true, spins:true, draw:drawTomahawk },   // thrown, spinning end over end
 };
 export const BY_LANE = { sky:[], ground:[], air:[], ufo:[] };
 for (const [k, d] of Object.entries(HAZARDS)) BY_LANE[d.lane].push(k);
@@ -57,19 +57,31 @@ function drawWeight(c, s) {
   c.fillStyle = '#fff'; c.font = `bold ${0.09 * s}px "Trebuchet MS", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
   c.fillText('25 TON', 0, 0.04 * s);
 }
+// The elephant tumbles as it falls (the game turns it); here its legs paddle, its ears flap and its trunk
+// swings and curls in alarm.
 function drawElephant(c, s, t) {
-  // falling feet-first with ears flapping in alarm
-  const flap = Math.sin(t / 90) * 0.1;
-  ellipse(c, 0, 0.02 * s, 0.24 * s, 0.15 * s, 0, '#adb5bd');
-  for (const x of [-0.16, -0.06, 0.06, 0.16]) { rr(c, x * s - 0.035 * s, 0.1 * s, 0.07 * s, 0.11 * s, 3); fillStroke(c, '#adb5bd'); }
-  circle(c, 0.2 * s, -0.1 * s, 0.11 * s, '#adb5bd');
-  ellipse(c, 0.14 * s, -0.1 * s, 0.08 * s, 0.1 * s, -0.4 + flap, '#ced4da');
-  c.beginPath(); c.moveTo(0.29 * s, -0.08 * s); c.quadraticCurveTo(0.36 * s, 0.02 * s, 0.3 * s, 0.1 * s); c.lineWidth = 0.05 * s + 4; c.stroke();
-  c.strokeStyle = '#adb5bd'; c.lineWidth = 0.05 * s; c.stroke(); styled(c);
-  c.fillStyle = OUTLINE; c.beginPath(); c.arc(0.23 * s, -0.13 * s, 0.015 * s, 0, 7); c.fill();
-  c.beginPath(); c.moveTo(-0.24 * s, 0); c.lineTo(-0.3 * s, -0.06 * s); c.stroke();
-  // sweat drops
-  c.fillStyle = '#74c0fc'; c.beginPath(); c.ellipse(0.32 * s, -0.2 * s, 0.015 * s, 0.025 * s, 0, 0, 7); c.fill();
+  const flap = Math.sin(t / 90) * 0.25;
+  // legs: each paddles on its own rhythm, pivoting at the hip
+  [[-0.16, 0], [-0.06, 1.7], [0.06, 3.1], [0.16, 4.4]].forEach(([x, ph]) => {
+    c.save(); c.translate(x * s, 0.1 * s); c.rotate(Math.sin(t / 130 + ph) * 0.45);
+    rr(c, -0.035 * s, 0, 0.07 * s, 0.12 * s, 3); fillStroke(c, '#adb5bd');
+    c.fillStyle = '#868e96'; c.fillRect(-0.03 * s, 0.1 * s, 0.06 * s, 0.015 * s);        // toenails
+    c.restore(); styled(c);
+  });
+  c.beginPath(); c.moveTo(-0.24 * s, 0); c.quadraticCurveTo(-0.32 * s, -0.04 * s + Math.sin(t / 110) * 0.04 * s, -0.33 * s, 0.03 * s); c.stroke(); // tail
+  ellipse(c, 0, 0.02 * s, 0.24 * s, 0.15 * s, 0, '#adb5bd');                               // body
+  // trunk: swings and curls, drawn as a thick curved tube from the face
+  const sw = Math.sin(t / 160), curl = Math.sin(t / 230 + 1);
+  const tx1 = 0.37 * s + sw * 0.05 * s, ty1 = 0.0 * s + curl * 0.06 * s, tx2 = 0.34 * s + sw * 0.1 * s, ty2 = 0.12 * s + curl * 0.08 * s;
+  c.beginPath(); c.moveTo(0.28 * s, -0.08 * s); c.bezierCurveTo(0.36 * s, -0.07 * s, tx1, ty1, tx2, ty2);
+  c.lineWidth = 0.055 * s + 6; c.strokeStyle = OUTLINE; c.stroke(); c.lineWidth = 0.055 * s; c.strokeStyle = '#adb5bd'; c.stroke(); styled(c);
+  circle(c, tx2, ty2, 0.028 * s, '#adb5bd');                                                 // trunk tip
+  circle(c, 0.2 * s, -0.1 * s, 0.11 * s, '#adb5bd');                                         // head
+  ellipse(c, 0.13 * s, -0.1 * s, 0.085 * s, 0.11 * s, -0.4 + flap, '#ced4da');              // flapping ear
+  c.fillStyle = OUTLINE; c.beginPath(); c.arc(0.24 * s, -0.13 * s, 0.017 * s, 0, 7); c.fill(); // wide eye
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(0.245 * s, -0.135 * s, 0.006 * s, 0, 7); c.fill();
+  c.fillStyle = '#f1f3f5'; c.beginPath(); c.moveTo(0.27 * s, -0.04 * s); c.quadraticCurveTo(0.31 * s, -0.01 * s, 0.33 * s, -0.04 * s); c.lineTo(0.3 * s, -0.05 * s); c.closePath(); c.fill(); c.stroke(); // tusk
+  c.fillStyle = '#74c0fc'; c.beginPath(); c.ellipse(0.32 * s, -0.2 * s, 0.015 * s, 0.025 * s, 0, 0, 7); c.fill();   // sweat drop
 }
 function drawAnvil(c, s) {
   c.beginPath();
@@ -173,30 +185,20 @@ function drawArrow(c, s) {
   c.beginPath(); c.moveTo(0.27 * s, 0); c.lineTo(0.19 * s, -0.035 * s); c.lineTo(0.19 * s, 0.035 * s); c.closePath(); fillStroke(c, '#adb5bd');
   for (const sy of [-1, 1]) { c.beginPath(); c.moveTo(-0.26 * s, sy * 0.035 * s); c.lineTo(-0.18 * s, 0); c.lineTo(-0.2 * s, sy * 0.035 * s); c.closePath(); fillStroke(c, '#e03131'); }
 }
-// A tin can: beans (blue label with beans) or soup (red and white label). hz.variant picks which.
-function drawCan(c, s, t, hz) {
-  const beans = !hz || hz.variant !== 'soup';
-  const w = 0.14 * s, h = 0.18 * s;
-  rr(c, -w / 2, -h / 2, w, h, 0.015 * s); fillStroke(c, '#ced4da');                      // tin
-  c.save(); rr(c, -w / 2, -h / 2, w, h, 0.015 * s); c.clip();
-  if (beans) {
-    c.fillStyle = '#1c7ed6'; c.fillRect(-w / 2, -h * 0.36, w, h * 0.72);
-    c.fillStyle = '#fff'; c.font = `900 ${0.034 * s}px "Trebuchet MS", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText('BEANS', 0, -h * 0.17);
-    c.fillStyle = '#e8590c';                                                                   // a little pile of baked beans
-    for (const [x, y] of [[-0.03, 0.1], [0, 0.11], [0.03, 0.1], [-0.015, 0.07], [0.015, 0.07], [0, 0.04]]) {
-      c.beginPath(); c.ellipse(x * s * 0.8, y * s * 0.8, 0.013 * s, 0.009 * s, 0.4, 0, 7); c.fill();
-    }
-  } else {
-    c.fillStyle = '#e03131'; c.fillRect(-w / 2, -h * 0.36, w, h * 0.36);
-    c.fillStyle = '#fff'; c.fillRect(-w / 2, 0, w, h * 0.36);
-    c.fillStyle = '#fff'; c.font = `900 ${0.036 * s}px "Trebuchet MS", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.fillText('SOUP', 0, -h * 0.18);
-    c.fillStyle = '#ffd43b'; c.beginPath(); c.arc(0, h * 0.18, 0.022 * s, 0, 7); c.fill();       // gold medallion
+// A tomahawk: wooden handle with a leather wrap and feathers, steel head at the +x end. The game spins it.
+function drawTomahawk(c, s) {
+  // feathers hanging from the butt of the handle
+  for (const [a, col] of [[0.5, '#e03131'], [0.85, '#f8f9fa']]) {
+    c.save(); c.translate(-0.14 * s, 0.005 * s); c.rotate(a);
+    c.beginPath(); c.ellipse(0, 0.035 * s, 0.012 * s, 0.035 * s, 0, 0, 7); fillStroke(c, col); c.restore(); styled(c);
   }
-  c.restore(); styled(c);
-  for (const y of [-h / 2 + 0.012 * s, h / 2 - 0.012 * s]) { c.strokeStyle = '#868e96'; c.lineWidth = 2; c.beginPath(); c.moveTo(-w / 2, y); c.lineTo(w / 2, y); c.stroke(); }  // rims
-  styled(c); rr(c, -w / 2, -h / 2, w, h, 0.015 * s); c.stroke();
+  rr(c, -0.15 * s, -0.012 * s, 0.27 * s, 0.024 * s, 0.01 * s); fillStroke(c, '#a0522d');   // handle
+  c.fillStyle = '#5c3d2e'; for (let i = 0; i < 4; i++) c.fillRect(-0.13 * s + i * 0.018 * s, -0.012 * s, 0.009 * s, 0.024 * s);  // leather wrap
+  // steel head: a curved blade on one side, a short spike on the other
+  c.beginPath(); c.moveTo(0.09 * s, -0.012 * s); c.lineTo(0.1 * s, -0.06 * s);
+  c.quadraticCurveTo(0.15 * s, -0.075 * s, 0.17 * s, -0.045 * s); c.lineTo(0.13 * s, -0.012 * s); c.closePath(); fillStroke(c, '#ced4da');
+  c.strokeStyle = '#f8f9fa'; c.lineWidth = 2; c.beginPath(); c.moveTo(0.105 * s, -0.062 * s); c.quadraticCurveTo(0.15 * s, -0.073 * s, 0.165 * s, -0.047 * s); c.stroke(); styled(c);
+  c.beginPath(); c.moveTo(0.1 * s, 0.012 * s); c.lineTo(0.115 * s, 0.045 * s); c.lineTo(0.125 * s, 0.012 * s); c.closePath(); fillStroke(c, '#adb5bd');
 }
 
 // Size on screen, in character heights.
