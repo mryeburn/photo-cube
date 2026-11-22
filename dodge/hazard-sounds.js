@@ -43,7 +43,7 @@ const SOUNDS = {
   eagle:    { base:0.35, every:[0.22, 'flap'], cry:'screech' },
   missile:  { base:0.3,  hiss:1400, engine:[110, 'sawtooth', 500] },
   arrow:    { base:0.5,  twang:true },                                   // a bow twang, then silent flight
-  tomahawk: { base:0.55, every:[0.21, 'whup'], steady:true },        // whup-whup as it spins
+  tomahawk: { base:0.55, every:[0.63, 'whup'], steady:true },        // whup-whup: once per half turn as it spins
   ufo:      { base:0.3,  warble:true, floor:0.15 },
 };
 

@@ -7,6 +7,8 @@
 // hitH (optional): share of the height that counts as solid, e.g. the eagle's body but not its wingtips.
 const OUTLINE = '#1f1a2e';
 
+const INK = 'rgba(28,30,40,0.85)';   // thin outline for the detailed drawings
+
 export const HAZARDS = {
   bomb:     { lane:'sky', scale:1.4, w:0.26, h:0.32, speed:0.95, draw:drawBomb, explodes:true },
   weight:   { lane:'sky', scale:1.5, w:0.42, h:0.32, speed:1.15, draw:drawWeight },
@@ -20,7 +22,7 @@ export const HAZARDS = {
   missile:  { lane:'air', twoPass:true, scale:1.5, w:0.5, h:0.12, speed:3.2, draw:drawMissile },
   arrow:    { lane:'air', scale:1.3, w:0.52, h:0.07, speed:7.8,  draw:drawArrow },
   ufo:      { lane:'ufo', scale:1.5, w:0.5, h:0.24, speed:0.5, draw:drawUfo },
-  tomahawk: { lane:'air', scale:2.2, w:0.3, h:0.12, speed:2.2, hitR:0.17, arc:true, spins:true, draw:drawTomahawk },   // thrown, spinning end over end
+  tomahawk: { lane:'air', scale:1.0, w:0.33, h:0.14, speed:2.2, arc:true, spins:true, shaped:true, draw:drawTomahawk },   // thrown, spinning end over end
 };
 export const BY_LANE = { sky:[], ground:[], air:[], ufo:[] };
 for (const [k, d] of Object.entries(HAZARDS)) BY_LANE[d.lane].push(k);
@@ -57,31 +59,59 @@ function drawWeight(c, s) {
   c.fillStyle = '#fff'; c.font = `bold ${0.09 * s}px "Trebuchet MS", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
   c.fillText('25 TON', 0, 0.04 * s);
 }
-// The elephant tumbles as it falls (the game turns it); here its legs paddle, its ears flap and its trunk
-// swings and curls in alarm.
+// The elephant, drawn with shaded, wrinkled grey skin. It tumbles as it falls (the game turns it); here its
+// legs paddle, its big ear flaps and its trunk swings and curls in alarm.
 function drawElephant(c, s, t) {
-  const flap = Math.sin(t / 90) * 0.25;
-  // legs: each paddles on its own rhythm, pivoting at the hip
-  [[-0.16, 0], [-0.06, 1.7], [0.06, 3.1], [0.16, 4.4]].forEach(([x, ph]) => {
-    c.save(); c.translate(x * s, 0.1 * s); c.rotate(Math.sin(t / 130 + ph) * 0.45);
-    rr(c, -0.035 * s, 0, 0.07 * s, 0.12 * s, 3); fillStroke(c, '#adb5bd');
-    c.fillStyle = '#868e96'; c.fillRect(-0.03 * s, 0.1 * s, 0.06 * s, 0.015 * s);        // toenails
-    c.restore(); styled(c);
+  const skin = (x, y, r) => { const g = c.createRadialGradient(x - r * 0.4, y - r * 0.5, r * 0.1, x, y, r * 1.2); g.addColorStop(0, '#b8bec4'); g.addColorStop(0.55, '#8c939a'); g.addColorStop(1, '#5f666d'); return g; };
+  c.lineWidth = 1.5; c.strokeStyle = INK;
+  const wrinkle = (x1, y1, x2, y2, bend) => { c.strokeStyle = 'rgba(60,66,72,0.55)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(x1, y1); c.quadraticCurveTo((x1 + x2) / 2, (y1 + y2) / 2 + bend, x2, y2); c.stroke(); };
+  // legs, paddling, each pivoting at the hip (far legs darker)
+  [[-0.15, 0, 0.8], [-0.05, 1.7, 1], [0.07, 3.1, 0.8], [0.16, 4.4, 1]].forEach(([x, ph, tone]) => {
+    c.save(); c.translate(x * s, 0.08 * s); c.rotate(Math.sin(t / 130 + ph) * 0.45);
+    c.beginPath(); c.moveTo(-0.04 * s, 0); c.lineTo(-0.038 * s, 0.13 * s); c.quadraticCurveTo(0, 0.145 * s, 0.038 * s, 0.13 * s); c.lineTo(0.04 * s, 0); c.closePath();
+    c.fillStyle = skin(0, 0.06 * s, 0.07 * s); c.globalAlpha = tone; c.fill(); c.globalAlpha = 1; c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
+    for (let k = 0; k < 3; k++) wrinkle(-0.03 * s, (0.04 + k * 0.03) * s, 0.03 * s, (0.04 + k * 0.03) * s, 0.01 * s);
+    c.fillStyle = '#e9e1d2'; for (const nx of [-0.022, 0, 0.022]) { c.beginPath(); c.ellipse(nx * s, 0.128 * s, 0.01 * s, 0.007 * s, 0, 0, 7); c.fill(); }   // toenails
+    c.restore();
   });
-  c.beginPath(); c.moveTo(-0.24 * s, 0); c.quadraticCurveTo(-0.32 * s, -0.04 * s + Math.sin(t / 110) * 0.04 * s, -0.33 * s, 0.03 * s); c.stroke(); // tail
-  ellipse(c, 0, 0.02 * s, 0.24 * s, 0.15 * s, 0, '#adb5bd');                               // body
-  // trunk: swings and curls, drawn as a thick curved tube from the face
+  // tail with a tuft
+  const tw = Math.sin(t / 110) * 0.04 * s;
+  c.strokeStyle = '#6c737a'; c.lineWidth = 0.012 * s + 1; c.beginPath(); c.moveTo(-0.235 * s, -0.01 * s); c.quadraticCurveTo(-0.3 * s, tw, -0.31 * s, 0.07 * s); c.stroke();
+  c.fillStyle = '#3d4247'; c.beginPath(); c.ellipse(-0.31 * s, 0.085 * s, 0.012 * s, 0.022 * s, 0.3, 0, 7); c.fill();
+  // body: shaded, darker underneath, with wrinkles
+  c.beginPath(); c.ellipse(0, 0.02 * s, 0.245 * s, 0.155 * s, 0, 0, 7); c.fillStyle = skin(-0.02 * s, -0.02 * s, 0.25 * s); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
+  const belly = c.createLinearGradient(0, 0.04 * s, 0, 0.175 * s); belly.addColorStop(0, 'rgba(40,44,50,0)'); belly.addColorStop(1, 'rgba(40,44,50,0.35)');
+  c.fillStyle = belly; c.beginPath(); c.ellipse(0, 0.02 * s, 0.245 * s, 0.155 * s, 0, 0, 7); c.fill();
+  for (const [x, b] of [[-0.12, 0.012], [-0.06, 0.016], [0.0, 0.014]]) wrinkle(x * s, -0.1 * s, (x + 0.02) * s, 0.12 * s, b * s);
+  // head
+  c.beginPath(); c.arc(0.2 * s, -0.09 * s, 0.115 * s, 0, 7); c.fillStyle = skin(0.2 * s, -0.11 * s, 0.12 * s); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
+  // trunk: a tapering, wrinkled tube that swings and curls
   const sw = Math.sin(t / 160), curl = Math.sin(t / 230 + 1);
-  const tx1 = 0.37 * s + sw * 0.05 * s, ty1 = 0.0 * s + curl * 0.06 * s, tx2 = 0.34 * s + sw * 0.1 * s, ty2 = 0.12 * s + curl * 0.08 * s;
-  c.beginPath(); c.moveTo(0.28 * s, -0.08 * s); c.bezierCurveTo(0.36 * s, -0.07 * s, tx1, ty1, tx2, ty2);
-  c.lineWidth = 0.055 * s + 6; c.strokeStyle = OUTLINE; c.stroke(); c.lineWidth = 0.055 * s; c.strokeStyle = '#adb5bd'; c.stroke(); styled(c);
-  circle(c, tx2, ty2, 0.028 * s, '#adb5bd');                                                 // trunk tip
-  circle(c, 0.2 * s, -0.1 * s, 0.11 * s, '#adb5bd');                                         // head
-  ellipse(c, 0.13 * s, -0.1 * s, 0.085 * s, 0.11 * s, -0.4 + flap, '#ced4da');              // flapping ear
-  c.fillStyle = OUTLINE; c.beginPath(); c.arc(0.24 * s, -0.13 * s, 0.017 * s, 0, 7); c.fill(); // wide eye
-  c.fillStyle = '#fff'; c.beginPath(); c.arc(0.245 * s, -0.135 * s, 0.006 * s, 0, 7); c.fill();
-  c.fillStyle = '#f1f3f5'; c.beginPath(); c.moveTo(0.27 * s, -0.04 * s); c.quadraticCurveTo(0.31 * s, -0.01 * s, 0.33 * s, -0.04 * s); c.lineTo(0.3 * s, -0.05 * s); c.closePath(); c.fill(); c.stroke(); // tusk
-  c.fillStyle = '#74c0fc'; c.beginPath(); c.ellipse(0.32 * s, -0.2 * s, 0.015 * s, 0.025 * s, 0, 0, 7); c.fill();   // sweat drop
+  const p0 = [0.27 * s, -0.06 * s], p1 = [0.37 * s, -0.04 * s], p2 = [0.38 * s + sw * 0.05 * s, 0.04 * s + curl * 0.05 * s], p3 = [0.33 * s + sw * 0.1 * s, 0.13 * s + curl * 0.08 * s];
+  const bez = (u) => { const a = 1 - u; return [a * a * a * p0[0] + 3 * a * a * u * p1[0] + 3 * a * u * u * p2[0] + u * u * u * p3[0], a * a * a * p0[1] + 3 * a * a * u * p1[1] + 3 * a * u * u * p2[1] + u * u * u * p3[1]]; };
+  for (let i = 0; i <= 14; i++) {                                                   // stack of shrinking discs = a tapering trunk
+    const u = i / 14, [x, y] = bez(u), r = (0.034 - u * 0.016) * s;
+    c.fillStyle = skin(x, y, r * 1.6); c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+  }
+  for (let i = 2; i <= 12; i += 2) { const [x, y] = bez(i / 14), r = (0.034 - i / 14 * 0.016) * s; wrinkle(x - r, y, x + r, y, r * 0.3); }
+  const [ex, ey] = bez(1); c.fillStyle = '#4a5056'; c.beginPath(); c.ellipse(ex, ey + 0.012 * s, 0.012 * s, 0.006 * s, 0, 0, 7); c.fill();   // trunk tip
+  // tusk
+  const tusk = c.createLinearGradient(0.27 * s, -0.04 * s, 0.34 * s, -0.02 * s); tusk.addColorStop(0, '#d8cfbb'); tusk.addColorStop(1, '#fffaf0');
+  c.fillStyle = tusk; c.beginPath(); c.moveTo(0.27 * s, -0.035 * s); c.quadraticCurveTo(0.33 * s, -0.005 * s, 0.355 * s, -0.04 * s); c.quadraticCurveTo(0.32 * s, -0.02 * s, 0.28 * s, -0.055 * s); c.closePath(); c.fill(); c.strokeStyle = INK; c.lineWidth = 1; c.stroke();
+  // big ear, flapping, pinkish inside
+  const flap = Math.sin(t / 90) * 0.25;
+  c.save(); c.translate(0.15 * s, -0.1 * s); c.rotate(-0.35 + flap);
+  c.beginPath(); c.moveTo(0, -0.08 * s); c.bezierCurveTo(-0.13 * s, -0.12 * s, -0.16 * s, 0.06 * s, -0.06 * s, 0.11 * s); c.bezierCurveTo(-0.02 * s, 0.13 * s, 0.02 * s, 0.05 * s, 0, -0.08 * s);
+  const ear = c.createRadialGradient(-0.05 * s, 0, 0.01 * s, -0.05 * s, 0, 0.13 * s); ear.addColorStop(0, '#c9a7a4'); ear.addColorStop(0.6, '#9a9fa5'); ear.addColorStop(1, '#6f767d');
+  c.fillStyle = ear; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
+  wrinkle(-0.03 * s, -0.04 * s, -0.09 * s, 0.05 * s, 0.01 * s); c.restore();
+  // eye, wide with alarm, and a sweat drop
+  c.fillStyle = '#fff'; c.beginPath(); c.ellipse(0.245 * s, -0.125 * s, 0.022 * s, 0.018 * s, 0, 0, 7); c.fill();
+  c.fillStyle = '#2b1d14'; c.beginPath(); c.arc(0.25 * s, -0.125 * s, 0.011 * s, 0, 7); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(0.254 * s, -0.129 * s, 0.004 * s, 0, 7); c.fill();
+  c.strokeStyle = 'rgba(40,40,40,0.7)'; c.lineWidth = 1.2; c.beginPath(); c.arc(0.245 * s, -0.12 * s, 0.026 * s, Math.PI * 1.15, Math.PI * 1.85); c.stroke();
+  const drop = c.createLinearGradient(0, -0.23 * s, 0, -0.18 * s); drop.addColorStop(0, '#e7f5ff'); drop.addColorStop(1, '#4dabf7');
+  c.fillStyle = drop; c.beginPath(); c.moveTo(0.32 * s, -0.235 * s); c.quadraticCurveTo(0.34 * s, -0.19 * s, 0.32 * s, -0.18 * s); c.quadraticCurveTo(0.3 * s, -0.19 * s, 0.32 * s, -0.235 * s); c.fill();
 }
 function drawAnvil(c, s) {
   c.beginPath();
@@ -105,20 +135,63 @@ function drawPlane(c, s, t) {
   c.restore();
 }
 
-// ---------------------------------------------------------------- ground
+// A red sedan, side view: glossy shaded paintwork with a reflection, tinted windows reflecting the sky,
+// chrome trim, door lines, headlight glow, tail light, and wheels with tyre tread and spoked rims that turn.
 function drawCar(c, s, t) {
-  c.fillStyle = 'rgba(255,255,255,0.6)';                                   // speed lines
-  for (let i = 0; i < 3; i++) c.fillRect(-0.5 * s - i * 0.06 * s, -0.08 * s + i * 0.06 * s, 0.14 * s, 0.012 * s);
-  styled(c);
-  c.beginPath(); c.moveTo(-0.3 * s, 0.07 * s); c.lineTo(-0.3 * s, -0.03 * s); c.quadraticCurveTo(-0.29 * s, -0.06 * s, -0.2 * s, -0.06 * s);
-  c.lineTo(-0.12 * s, -0.14 * s); c.lineTo(0.1 * s, -0.14 * s); c.lineTo(0.18 * s, -0.06 * s); c.lineTo(0.28 * s, -0.04 * s);
-  c.quadraticCurveTo(0.32 * s, -0.02 * s, 0.32 * s, 0.07 * s); c.closePath(); fillStroke(c, '#e03131');
-  c.beginPath(); c.moveTo(-0.1 * s, -0.06 * s); c.lineTo(-0.07 * s, -0.12 * s); c.lineTo(0.0, -0.12 * s); c.lineTo(0.0, -0.06 * s); c.closePath(); fillStroke(c, '#a5d8ff');
-  c.beginPath(); c.moveTo(0.03 * s, -0.06 * s); c.lineTo(0.03 * s, -0.12 * s); c.lineTo(0.09 * s, -0.12 * s); c.lineTo(0.14 * s, -0.06 * s); c.closePath(); fillStroke(c, '#a5d8ff');
-  circle(c, 0.3 * s, 0.0, 0.025 * s, '#ffe066');
+  // speed streaks behind it
+  for (let i = 0; i < 4; i++) { c.fillStyle = `rgba(255,255,255,${0.5 - i * 0.1})`; c.fillRect(-0.55 * s - i * 0.05 * s, -0.09 * s + i * 0.055 * s, 0.16 * s, 0.01 * s); }
+  // shadow on the ground
+  const sh = c.createRadialGradient(0, 0.15 * s, 0, 0, 0.15 * s, 0.34 * s); sh.addColorStop(0, 'rgba(0,0,0,0.35)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+  c.fillStyle = sh; c.beginPath(); c.ellipse(0, 0.15 * s, 0.34 * s, 0.03 * s, 0, 0, 7); c.fill();
+  // body
+  const body = new Path2D();
+  body.moveTo(-0.31 * s, 0.09 * s); body.lineTo(-0.315 * s, -0.005 * s); body.quadraticCurveTo(-0.31 * s, -0.05 * s, -0.25 * s, -0.055 * s);
+  body.lineTo(-0.16 * s, -0.06 * s); body.quadraticCurveTo(-0.11 * s, -0.135 * s, -0.04 * s, -0.14 * s); body.lineTo(0.07 * s, -0.14 * s);
+  body.quadraticCurveTo(0.12 * s, -0.135 * s, 0.17 * s, -0.065 * s); body.quadraticCurveTo(0.28 * s, -0.06 * s, 0.315 * s, -0.03 * s);
+  body.quadraticCurveTo(0.33 * s, 0.0, 0.325 * s, 0.09 * s); body.closePath();
+  const paint = c.createLinearGradient(0, -0.14 * s, 0, 0.09 * s);
+  paint.addColorStop(0, '#ff6b5e'); paint.addColorStop(0.25, '#e8241c'); paint.addColorStop(0.6, '#b3140f'); paint.addColorStop(1, '#6e0a08');
+  c.fillStyle = paint; c.fill(body); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke(body);
+  // reflection along the side
+  c.save(); c.clip(body);
+  const refl = c.createLinearGradient(0, -0.04 * s, 0, 0.01 * s); refl.addColorStop(0, 'rgba(255,255,255,0)'); refl.addColorStop(0.5, 'rgba(255,255,255,0.45)'); refl.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = refl; c.fillRect(-0.32 * s, -0.04 * s, 0.65 * s, 0.05 * s);
+  c.restore();
+  // windows: tinted glass reflecting the sky
+  const glass = c.createLinearGradient(0, -0.13 * s, 0, -0.065 * s); glass.addColorStop(0, '#cfe8ff'); glass.addColorStop(0.5, '#6f9cc9'); glass.addColorStop(1, '#2c4a6b');
+  c.fillStyle = glass; c.strokeStyle = '#d0d4d8'; c.lineWidth = 1.5;
+  for (const pts of [[[-0.145, -0.065], [-0.1, -0.125], [-0.04, -0.13], [-0.035, -0.065]], [[-0.02, -0.065], [-0.02, -0.13], [0.065, -0.13], [0.15, -0.065]]]) {
+    c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x * s, y * s) : c.moveTo(x * s, y * s)); c.closePath(); c.fill(); c.stroke();
+  }
+  c.fillStyle = 'rgba(255,255,255,0.5)'; c.beginPath(); c.moveTo(0.0, -0.125 * s); c.lineTo(0.03 * s, -0.125 * s); c.lineTo(0.0, -0.07 * s); c.lineTo(-0.012 * s, -0.07 * s); c.closePath(); c.fill(); // glint
+  // chrome trim, door seams and handles
+  c.strokeStyle = '#dee2e6'; c.lineWidth = 2; c.beginPath(); c.moveTo(-0.29 * s, 0.03 * s); c.lineTo(0.3 * s, 0.03 * s); c.stroke();
+  c.strokeStyle = 'rgba(60,0,0,0.6)'; c.lineWidth = 1.2;
+  for (const x of [-0.03, 0.15]) { c.beginPath(); c.moveTo(x * s, -0.06 * s); c.lineTo(x * s, 0.085 * s); c.stroke(); }
+  c.fillStyle = '#ced4da'; c.fillRect(-0.005 * s, -0.035 * s, 0.025 * s, 0.008 * s); c.fillRect(0.12 * s, -0.035 * s, 0.025 * s, 0.008 * s);
+  // bumpers
+  c.fillStyle = '#343a40'; c.beginPath(); c.roundRect ? c.roundRect(0.29 * s, 0.05 * s, 0.045 * s, 0.035 * s, 0.01 * s) : c.rect(0.29 * s, 0.05 * s, 0.045 * s, 0.035 * s); c.fill();
+  c.beginPath(); c.roundRect ? c.roundRect(-0.325 * s, 0.05 * s, 0.04 * s, 0.035 * s, 0.01 * s) : c.rect(-0.325 * s, 0.05 * s, 0.04 * s, 0.035 * s); c.fill();
+  // headlight with a glow, and the tail light
+  const hl = c.createRadialGradient(0.31 * s, -0.012 * s, 0, 0.31 * s, -0.012 * s, 0.1 * s); hl.addColorStop(0, 'rgba(255,250,210,0.9)'); hl.addColorStop(1, 'rgba(255,250,210,0)');
+  c.fillStyle = hl; c.beginPath(); c.arc(0.31 * s, -0.012 * s, 0.1 * s, 0, 7); c.fill();
+  c.fillStyle = '#fff9db'; c.beginPath(); c.ellipse(0.31 * s, -0.012 * s, 0.014 * s, 0.02 * s, 0, 0, 7); c.fill(); c.strokeStyle = INK; c.lineWidth = 1; c.stroke();
+  c.fillStyle = '#ff2d2d'; c.beginPath(); c.ellipse(-0.307 * s, -0.012 * s, 0.009 * s, 0.018 * s, 0, 0, 7); c.fill(); c.stroke();
+  // wheels: dark arches, tyres with tread, spoked rims that turn
   for (const x of [-0.18, 0.18]) {
-    circle(c, x * s, 0.08 * s, 0.07 * s, '#212529'); circle(c, x * s, 0.08 * s, 0.03 * s, '#ced4da');
-    c.save(); c.translate(x * s, 0.08 * s); c.rotate(t / 60); c.strokeStyle = '#495057'; c.beginPath(); c.moveTo(-0.05 * s, 0); c.lineTo(0.05 * s, 0); c.stroke(); c.restore(); styled(c);
+    const cx = x * s, cy = 0.085 * s, R = 0.068 * s;
+    c.fillStyle = '#1a1a1a'; c.beginPath(); c.arc(cx, cy - 0.005 * s, R * 1.12, Math.PI, 0); c.fill();   // wheel arch
+    const tyre = c.createRadialGradient(cx - R * 0.3, cy - R * 0.3, R * 0.2, cx, cy, R); tyre.addColorStop(0, '#4a4a4a'); tyre.addColorStop(1, '#161616');
+    c.fillStyle = tyre; c.beginPath(); c.arc(cx, cy, R, 0, 7); c.fill();
+    c.save(); c.translate(cx, cy); c.rotate(t / 60);
+    c.strokeStyle = '#0c0c0c'; c.lineWidth = 2;
+    for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; c.beginPath(); c.moveTo(Math.cos(a) * R * 0.85, Math.sin(a) * R * 0.85); c.lineTo(Math.cos(a) * R, Math.sin(a) * R); c.stroke(); }
+    const rim = c.createRadialGradient(-R * 0.2, -R * 0.2, 0, 0, 0, R * 0.6); rim.addColorStop(0, '#f8f9fa'); rim.addColorStop(1, '#868e96');
+    c.fillStyle = rim; c.beginPath(); c.arc(0, 0, R * 0.58, 0, 7); c.fill();
+    c.strokeStyle = '#495057'; c.lineWidth = R * 0.12;
+    for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; c.beginPath(); c.moveTo(Math.cos(a) * R * 0.12, Math.sin(a) * R * 0.12); c.lineTo(Math.cos(a) * R * 0.52, Math.sin(a) * R * 0.52); c.stroke(); }
+    c.fillStyle = '#343a40'; c.beginPath(); c.arc(0, 0, R * 0.12, 0, 7); c.fill();
+    c.restore();
   }
 }
 function drawPig(c, s, t) {
@@ -169,15 +242,44 @@ function drawRaven(c, s, t) {
   c.beginPath(); c.moveTo(0.15 * s, -0.025 * s); c.lineTo(0.22 * s, -0.005 * s); c.lineTo(0.15 * s, 0.005 * s); c.closePath(); fillStroke(c, '#495057');
   c.fillStyle = '#ffd43b'; c.beginPath(); c.arc(0.13 * s, -0.03 * s, 0.009 * s, 0, 7); c.fill();
 }
+// A missile: a rounded metal body shaded like a cylinder, a red nose cone, panel lines and rivets, swept
+// fins, and a roaring exhaust flame with a smoke trail.
 function drawMissile(c, s, t) {
-  const fl = 0.08 * s * (1 + 0.3 * Math.sin(t / 30));
-  c.fillStyle = '#ff922b'; c.beginPath(); c.moveTo(-0.22 * s, -0.035 * s); c.lineTo(-0.22 * s - fl, 0); c.lineTo(-0.22 * s, 0.035 * s); c.fill();
-  c.fillStyle = '#ffe066'; c.beginPath(); c.moveTo(-0.22 * s, -0.02 * s); c.lineTo(-0.22 * s - fl * 0.6, 0); c.lineTo(-0.22 * s, 0.02 * s); c.fill();
-  styled(c);
-  c.beginPath(); c.moveTo(-0.22 * s, -0.04 * s); c.lineTo(0.14 * s, -0.04 * s); c.quadraticCurveTo(0.25 * s, -0.03 * s, 0.26 * s, 0); c.quadraticCurveTo(0.25 * s, 0.03 * s, 0.14 * s, 0.04 * s); c.lineTo(-0.22 * s, 0.04 * s); c.closePath();
-  fillStroke(c, '#dee2e6');
-  c.beginPath(); c.moveTo(0.14 * s, -0.04 * s); c.quadraticCurveTo(0.25 * s, -0.03 * s, 0.26 * s, 0); c.quadraticCurveTo(0.25 * s, 0.03 * s, 0.14 * s, 0.04 * s); c.closePath(); fillStroke(c, '#e03131');
-  for (const sy of [-1, 1]) { c.beginPath(); c.moveTo(-0.2 * s, sy * 0.04 * s); c.lineTo(-0.25 * s, sy * 0.09 * s); c.lineTo(-0.13 * s, sy * 0.04 * s); c.closePath(); fillStroke(c, '#e03131'); }
+  // smoke trail
+  for (let i = 0; i < 7; i++) {
+    const k = (i + (t / 60) % 1) / 7, x = -0.24 * s - k * 0.5 * s, r = (0.025 + k * 0.05) * s;
+    c.fillStyle = `rgba(200,200,200,${0.45 * (1 - k)})`; c.beginPath(); c.arc(x, Math.sin(t / 90 + i) * 0.01 * s, r, 0, 7); c.fill();
+  }
+  // flame
+  const fl = 0.11 * s * (1 + 0.25 * Math.sin(t / 25) + 0.1 * Math.sin(t / 7));
+  const flame = c.createRadialGradient(-0.22 * s, 0, 0, -0.22 * s - fl * 0.4, 0, fl);
+  flame.addColorStop(0, 'rgba(255,255,240,1)'); flame.addColorStop(0.25, 'rgba(255,220,90,0.95)'); flame.addColorStop(0.6, 'rgba(255,120,20,0.7)'); flame.addColorStop(1, 'rgba(255,60,0,0)');
+  c.fillStyle = flame; c.beginPath(); c.moveTo(-0.215 * s, -0.035 * s); c.quadraticCurveTo(-0.22 * s - fl, -0.02 * s, -0.22 * s - fl * 1.2, 0); c.quadraticCurveTo(-0.22 * s - fl, 0.02 * s, -0.215 * s, 0.035 * s); c.closePath(); c.fill();
+  // fins (far ones behind the body)
+  const fin = (sy, far) => {
+    c.beginPath(); c.moveTo(-0.2 * s, sy * 0.035 * s); c.lineTo(-0.25 * s, sy * 0.1 * s); c.lineTo(-0.2 * s, sy * 0.1 * s); c.lineTo(-0.13 * s, sy * 0.035 * s); c.closePath();
+    const g = c.createLinearGradient(0, sy * 0.035 * s, 0, sy * 0.1 * s); g.addColorStop(0, far ? '#5c6168' : '#868e96'); g.addColorStop(1, far ? '#34383d' : '#495057');
+    c.fillStyle = g; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke();
+  };
+  fin(-1, true);
+  // body: a metal cylinder, lit from above
+  const body = new Path2D();
+  body.moveTo(-0.215 * s, -0.04 * s); body.lineTo(0.13 * s, -0.04 * s); body.quadraticCurveTo(0.245 * s, -0.035 * s, 0.27 * s, 0); body.quadraticCurveTo(0.245 * s, 0.035 * s, 0.13 * s, 0.04 * s); body.lineTo(-0.215 * s, 0.04 * s); body.closePath();
+  const metal = c.createLinearGradient(0, -0.04 * s, 0, 0.04 * s);
+  metal.addColorStop(0, '#9aa1a8'); metal.addColorStop(0.25, '#f4f6f8'); metal.addColorStop(0.55, '#c3c9cf'); metal.addColorStop(1, '#5b6168');
+  c.fillStyle = metal; c.fill(body);
+  c.save(); c.clip(body);
+  const nose = c.createLinearGradient(0, -0.04 * s, 0, 0.04 * s); nose.addColorStop(0, '#a61e1e'); nose.addColorStop(0.3, '#ff5a5a'); nose.addColorStop(1, '#6b0f0f');
+  c.fillStyle = nose; c.fillRect(0.14 * s, -0.05 * s, 0.14 * s, 0.1 * s);
+  c.fillStyle = '#e8590c'; c.fillRect(0.05 * s, -0.05 * s, 0.018 * s, 0.1 * s);                     // warning band
+  c.strokeStyle = 'rgba(50,55,60,0.6)'; c.lineWidth = 1;
+  for (const x of [-0.12, -0.03, 0.14]) { c.beginPath(); c.moveTo(x * s, -0.05 * s); c.lineTo(x * s, 0.05 * s); c.stroke(); }   // panel seams
+  c.fillStyle = 'rgba(50,55,60,0.7)'; for (const x of [-0.11, -0.02]) for (const y of [-0.025, 0.025]) { c.beginPath(); c.arc((x + 0.012) * s, y * s, 0.0035 * s, 0, 7); c.fill(); }   // rivets
+  c.fillStyle = 'rgba(40,44,50,0.75)'; c.font = `bold ${0.022 * s}px sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText('XM-9', -0.075 * s, 0.003 * s);
+  c.restore();
+  c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke(body);
+  c.fillStyle = '#343a40'; c.fillRect(-0.225 * s, -0.03 * s, 0.012 * s, 0.06 * s);                    // nozzle
+  fin(1, false);
 }
 function drawArrow(c, s) {
   c.strokeStyle = OUTLINE; c.lineWidth = 0.02 * s + 4; c.beginPath(); c.moveTo(-0.24 * s, 0); c.lineTo(0.2 * s, 0); c.stroke();
@@ -261,26 +363,44 @@ export function drawWreck(c, x, y, s, age, dir) {
   c.restore();
 }
 
-// A flying saucer: a domed cockpit with a little green pilot, a rim of blinking lights.
+// A flying saucer: polished metal shaded top to bottom, a darker rim band with a ring of rotating lights,
+// a glowing underside, and a glass dome with a reflection and a little green pilot.
 function drawUfo(c, s, t) {
-  // glow underneath
-  c.fillStyle = 'rgba(140,255,200,0.25)'; c.beginPath(); c.ellipse(0, 0.07 * s, 0.2 * s, 0.05 * s, 0, 0, 7); c.fill();
-  // dome and pilot
-  c.fillStyle = 'rgba(165,216,255,0.85)'; c.beginPath(); c.ellipse(0, -0.04 * s, 0.1 * s, 0.09 * s, 0, Math.PI, 0); c.fill(); c.stroke();
-  c.fillStyle = '#69db7c'; c.beginPath(); c.arc(0, -0.07 * s, 0.035 * s, 0, 7); c.fill();
-  c.fillStyle = OUTLINE; c.beginPath(); c.ellipse(-0.013 * s, -0.075 * s, 0.009 * s, 0.014 * s, -0.3, 0, 7); c.ellipse(0.013 * s, -0.075 * s, 0.009 * s, 0.014 * s, 0.3, 0, 7); c.fill();
-  // saucer
-  c.beginPath(); c.ellipse(0, 0, 0.25 * s, 0.065 * s, 0, 0, 7); c.fillStyle = '#adb5bd'; c.fill(); c.stroke();
-  c.beginPath(); c.ellipse(0, -0.012 * s, 0.25 * s, 0.03 * s, 0, Math.PI, 0); c.fillStyle = '#ced4da'; c.fill();
-  // a ring of lights rotating round the rim: bright as they come round the front, dim going behind
+  // glow beneath
+  const under = c.createRadialGradient(0, 0.06 * s, 0, 0, 0.06 * s, 0.22 * s);
+  under.addColorStop(0, 'rgba(150,255,210,0.55)'); under.addColorStop(1, 'rgba(150,255,210,0)');
+  c.fillStyle = under; c.beginPath(); c.ellipse(0, 0.06 * s, 0.24 * s, 0.07 * s, 0, 0, 7); c.fill();
+  // antenna with a blinking tip
+  c.strokeStyle = '#868e96'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0, -0.12 * s); c.lineTo(0, -0.16 * s); c.stroke();
+  c.fillStyle = Math.floor(t / 400) % 2 ? '#ff6b6b' : '#ffe3e3'; c.beginPath(); c.arc(0, -0.165 * s, 0.009 * s, 0, 7); c.fill();
+  // dome: glass with the pilot inside
+  const dome = new Path2D(); dome.ellipse(0, -0.035 * s, 0.1 * s, 0.09 * s, 0, Math.PI, 0); dome.closePath();
+  const glass = c.createRadialGradient(-0.03 * s, -0.09 * s, 0.005 * s, 0, -0.04 * s, 0.11 * s);
+  glass.addColorStop(0, 'rgba(235,250,255,0.95)'); glass.addColorStop(0.5, 'rgba(140,200,240,0.7)'); glass.addColorStop(1, 'rgba(60,110,160,0.85)');
+  c.fillStyle = glass; c.fill(dome);
+  c.save(); c.clip(dome);
+  c.fillStyle = '#5fbf6a'; c.beginPath(); c.ellipse(0, -0.065 * s, 0.032 * s, 0.038 * s, 0, 0, 7); c.fill();    // head
+  c.fillStyle = '#4c9a56'; c.beginPath(); c.ellipse(0, -0.02 * s, 0.045 * s, 0.025 * s, 0, 0, 7); c.fill();     // shoulders
+  c.fillStyle = '#111'; for (const sx of [-1, 1]) { c.beginPath(); c.ellipse(sx * 0.013 * s, -0.07 * s, 0.011 * s, 0.017 * s, sx * 0.4, 0, 7); c.fill(); }
+  c.fillStyle = 'rgba(255,255,255,0.7)'; for (const sx of [-1, 1]) { c.beginPath(); c.arc(sx * 0.011 * s, -0.077 * s, 0.003 * s, 0, 7); c.fill(); }
+  c.restore();
+  c.strokeStyle = 'rgba(255,255,255,0.75)'; c.lineWidth = 2; c.beginPath(); c.ellipse(0, -0.035 * s, 0.08 * s, 0.07 * s, 0, Math.PI * 1.15, Math.PI * 1.45); c.stroke();  // reflection
+  c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke(dome);
+  // saucer body: polished metal
+  const hull = new Path2D(); hull.ellipse(0, 0, 0.26 * s, 0.06 * s, 0, 0, 7);
+  const metal = c.createLinearGradient(0, -0.06 * s, 0, 0.06 * s);
+  metal.addColorStop(0, '#f8f9fa'); metal.addColorStop(0.4, '#c5cbd1'); metal.addColorStop(0.55, '#7d858d'); metal.addColorStop(1, '#3d434a');
+  c.fillStyle = metal; c.fill(hull); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke(hull);
+  c.strokeStyle = 'rgba(255,255,255,0.6)'; c.lineWidth = 1.5; c.beginPath(); c.ellipse(0, -0.01 * s, 0.2 * s, 0.03 * s, 0, Math.PI * 1.1, Math.PI * 1.9); c.stroke();  // sheen
+  c.fillStyle = '#495057'; c.beginPath(); c.ellipse(0, 0.012 * s, 0.25 * s, 0.022 * s, 0, 0, Math.PI); c.fill();                  // rim band
+  // ring of rotating lights round the rim: bright at the front, dim going behind
   const colours = ['#ff4d4d', '#ffe066', '#4dd4ff', '#69db7c'];
-  for (let i = 0; i < 10; i++) {
-    const a = i * Math.PI / 5 + t / 450, depth = Math.sin(a);            // depth > 0: front of the saucer
-    if (depth < -0.3) continue;
-    const x = Math.cos(a) * 0.21 * s, y = 0.016 * s + depth * 0.022 * s, r = (0.016 + 0.01 * depth) * s;
-    c.globalAlpha = 0.45 + 0.55 * Math.max(0, depth);
-    c.fillStyle = colours[i % 4]; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
-    if (depth > 0.6) { c.globalAlpha = 0.25; c.beginPath(); c.arc(x, y, r * 2.4, 0, 7); c.fill(); }   // glow
+  for (let i = 0; i < 12; i++) {
+    const a = i * Math.PI / 6 + t / 450, depth = Math.sin(a);
+    if (depth < -0.25) continue;
+    const x = Math.cos(a) * 0.23 * s, y = 0.016 * s + depth * 0.016 * s, r = (0.013 + 0.008 * depth) * s;
+    const g = c.createRadialGradient(x, y, 0, x, y, r * 1.8); g.addColorStop(0, '#fff'); g.addColorStop(0.3, colours[i % 4]); g.addColorStop(0.55, colours[i % 4]); g.addColorStop(1, 'rgba(255,255,255,0)');
+    c.globalAlpha = 0.4 + 0.6 * Math.max(0, depth); c.fillStyle = g; c.beginPath(); c.arc(x, y, r * 1.8, 0, 7); c.fill();
   }
   c.globalAlpha = 1;
 }

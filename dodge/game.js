@@ -5,6 +5,7 @@ import { FilesetResolver, PoseLandmarker, FaceDetector } from './lib/mediapipe/v
 import { HAZARDS, BY_LANE, drawHazard, sizeOf, drawWreck } from './hazards.js';
 import { createVoice, loadSamples, scream, groan, fire, laserCharge, laserShot, villainVoice, swoosh, pow, knockout } from './hazard-sounds.js';
 import { drawVillain } from './villain.js';
+import { drawScenery as paintScenery } from './scenery.js';
 
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -15,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '2.5';
+const VERSION = '2.6';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -325,7 +326,16 @@ function hitCircles(k) {
     { ...mid(k.lHip, k.lKnee), r: s * 0.05 }, { ...mid(k.rHip, k.rKnee), r: s * 0.05 },
   ];
 }
+// A tomahawk is judged by its actual handle and blade, wherever they point as it spins, so a hit
+// counts exactly when the picture shows it touching the player.
+function tomahawkHits(cir, hz) {
+  const s = charH * HAZARDS[hz.kind].scale, cs = Math.cos(hz.spin), sn = Math.sin(hz.spin);
+  const pt = (px, py) => { const x = hz.dir * px * s, y = py * s; return { x: hz.x + x * cs - y * sn, y: hz.y + x * sn + y * cs }; };
+  const a = pt(-0.15, 0), b = pt(0.17, 0), blade = pt(0.135, -0.04);
+  return distToSegment(cir, a.x, a.y, b.x, b.y) < cir.r + 0.014 * s || Math.hypot(cir.x - blade.x, cir.y - blade.y) < cir.r + 0.045 * s;
+}
 function circleHitsBox(cir, hz) {
+  if (HAZARDS[hz.kind].shaped) return tomahawkHits(cir, hz);
   const r = HAZARDS[hz.kind].hitR;
   if (r) return Math.hypot(cir.x - hz.x, cir.y - hz.y) < r * charH + cir.r;   // round hit area (a diving plane)
   // A little forgiving at the edges. Things on the ground are judged by their solid middle (a car's
@@ -336,24 +346,7 @@ function circleHitsBox(cir, hz) {
 }
 
 // ---------------------------------------------------------------- scenery
-const clouds = Array.from({ length: 5 }, (_, i) => ({ x: Math.random(), y: 0.08 + Math.random() * 0.28, s: 0.6 + Math.random() * 0.6, v: 0.004 + Math.random() * 0.006 }));
-function drawScenery(c, now, shake) {
-  const g = c.createLinearGradient(0, 0, 0, groundY);
-  g.addColorStop(0, '#4dabf7'); g.addColorStop(1, '#d0ebff');
-  c.fillStyle = g; c.fillRect(0, 0, W, groundY + 2);
-  c.fillStyle = '#ffe066'; c.beginPath(); c.arc(W * 0.85, H * 0.16, H * 0.07, 0, 7); c.fill();
-  c.fillStyle = 'rgba(255,255,255,0.9)';
-  for (const cl of clouds) {
-    const x = ((cl.x + now / 1000 * cl.v) % 1.2 - 0.1) * W, y = cl.y * H, r = H * 0.05 * cl.s;
-    c.beginPath(); c.arc(x, y, r, 0, 7); c.arc(x + r, y - r * 0.4, r * 0.9, 0, 7); c.arc(x + r * 2, y, r * 0.8, 0, 7); c.fill();
-  }
-  c.fillStyle = '#8ce99a'; c.beginPath(); c.moveTo(0, groundY);
-  for (let x = 0; x <= W; x += W / 8) c.quadraticCurveTo(x + W / 16, groundY - H * 0.12, x + W / 8, groundY);
-  c.fill();
-  c.fillStyle = '#51cf66'; c.fillRect(0, groundY, W, H - groundY);
-  c.fillStyle = '#2f9e44'; c.fillRect(0, groundY, W, 6);
-  c.fillStyle = '#a5694f'; c.fillRect(0, groundY + H * 0.07, W, H);
-}
+function drawScenery(c, now) { paintScenery(c, W, H, groundY, now); }   // see scenery.js
 
 // Small mirrored camera view so players can check they are fully in view.
 function drawPreview(c) {
@@ -415,6 +408,7 @@ function spawn(lane, now, kind = null, aimed = false) {
     hz.dir = Math.random() < 0.5 ? 1 : -1;
     hz.x = hz.dir > 0 ? -w : W + w; hz.baseY = H * 0.2 + Math.random() * H * 0.08; hz.y = hz.baseY;
     hz.vx = hz.dir * sp; hz.vy = 0; hz.shots = 0; hz.nextShot = now + 1400 + Math.random() * 800; hz.aim = null;
+    const t = elapsed(now); hz.maxShots = t < 120 ? 1 : t < 180 ? 2 : 3;   // more shots per visit as the game goes on
   } else if (lane === 'sky') {
     // Falling things start slowly and speed up under gravity.
     hz.x = skyTarget(w, aimed);
@@ -432,7 +426,7 @@ function spawn(lane, now, kind = null, aimed = false) {
       // ducking gets under it.
       hz.variant = Math.random() < 0.5 ? 'beans' : 'soup';
       const T = Math.abs(hz.x - charX) / sp;                          // ms until it reaches the player
-      const yTop = hz.y, y0 = groundY - charH * 0.25;                 // top of the arc = head height; start low
+      const yTop = groundY - charH * 1.02, y0 = groundY - charH * 0.25;   // top of the arc = top of the head; start low
       hz.g = 2 * (y0 - yTop) / (T * T); hz.y = y0; hz.vy = -hz.g * T;
     }
   }
@@ -471,7 +465,9 @@ function nextLane() {
   // Teach the three moves first, then mix them up.
   const teach = ['sky', 'ground', 'air'];
   if (G.tutorial < teach.length) return teach[G.tutorial++];
-  if (elapsed(performance.now()) > 45 && Math.random() < 0.13) return 'ufo';    // UFOs after 45 seconds
+  // UFOs after 45 seconds, one at a time; after 4 minutes, up to two at once.
+  const ufos = G.hazards.filter(h => h.lane === 'ufo').length, t = elapsed(performance.now());
+  if (t > 45 && ufos < (t > 240 ? 2 : 1) && Math.random() < 0.13) return 'ufo';
   // (the masked brute is on hold for now; spawnVillain() is kept for when he returns)
   const r = Math.random();
   return r < 0.38 ? 'sky' : r < 0.69 ? 'ground' : 'air';
@@ -505,10 +501,11 @@ function sweepPoint(hz, now) {
   c.centre += (charX - c.centre) * 0.02;                                 // the sweep drifts to follow the player
   return { x: clamp(c.centre + Math.sin(t * c.speed + c.phase) * charH * 1.3, 0, W), y: groundY };
 }
-function updateUfo(hz, now, circles) {
+function updateUfo(hz, now, circles, dt) {
+  if (hz.charge) hz.x -= hz.vx * dt * 0.7;                          // it slows almost to a hover while charging
   hz.y = hz.baseY + Math.sin((now - hz.born) / 700) * charH * 0.3;
   const onScreen = hz.x > W * 0.08 && hz.x < W * 0.92;
-  if (!hz.charge && hz.shots < 2 && onScreen && now >= hz.nextShot && G.lastSk) {
+  if (!hz.charge && hz.shots < hz.maxShots && onScreen && now >= hz.nextShot && G.lastSk) {
     const ms = UFO_CHARGE_MS;
     hz.charge = { at: now, ms, centre: charX, speed: 3 + Math.random() * 1.5, phase: Math.random() * 6.28 };
     if (audio()) laserCharge(actx, ms / 1000);
@@ -523,6 +520,7 @@ function updateUfo(hz, now, circles) {
       const beamHits = circles.some(cr => distToSegment(cr, x0, y0, gx, groundY) < cr.r + charH * 0.04);
       if (beamHits) hurt(now, hz); else dodged(now, { ...hz, lane:'sky', x: gx });
       hz.charge = null; hz.shots++; hz.nextShot = now + 1200 + Math.random() * 1000;
+      if (hz.shots >= hz.maxShots) hz.vx *= 3;                         // done: it speeds away off the screen
     }
   }
   if ((hz.dir > 0 && hz.x - hz.w > W) || (hz.dir < 0 && hz.x + hz.w < 0)) hz.done = true;
@@ -615,7 +613,7 @@ function updateHazards(now, dt, sk) {
     if (hz.done) continue;
     if (hz.g && !hz.flying) hz.vy += hz.g * dt;
     hz.x += hz.vx * dt; hz.y += hz.vy * dt;
-    if (HAZARDS[hz.kind].spins) hz.spin += hz.dir * dt * 0.015;      // a tomahawk turns end over end
+    if (HAZARDS[hz.kind].spins) hz.spin += hz.dir * dt * 0.005;      // a tomahawk turns end over end, slowly enough to see
     if (hz.spinV && !hz.flying) hz.spin += hz.spinV * dt;              // the elephant rolls as it falls
     if (HAZARDS[hz.kind].bounce && !hz.flying) {
       const ph = Math.max(0, now - hz.born) / 160;
@@ -633,7 +631,7 @@ function updateHazards(now, dt, sk) {
     }
     if (!hz.hit && circles.some(cr => circleHitsBox(cr, hz))) { hurt(now, hz); continue; }
     const d = HAZARDS[hz.kind];
-    if (hz.lane === 'ufo') { updateUfo(hz, now, circles); continue; }
+    if (hz.lane === 'ufo') { updateUfo(hz, now, circles, dt); continue; }
     if (d.arc && hz.vy > 0 && hz.y >= groundY - hz.h * 0.4) {          // the tomahawk lands, blade first, and sticks
       hz.done = true; dodged(now, hz); sfx.thud(); tone(180, 0.12, 'square', 0.12);
       G.effects.push({ type:'landed', hz:{ ...hz, done:false, flying:false, y: groundY - hz.w * 0.36, spin: hz.dir * 1.1 }, born: now, dur: 1400 });
@@ -1030,4 +1028,4 @@ initVision()
 requestAnimationFrame(loop);
 
 // Hooks for automated testing.
-window.__dg = { G, B, motion, buildBody, spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed) };
+window.__dg = { G, B, motion, buildBody, nextLane: () => nextLane(), spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed) };
