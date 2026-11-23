@@ -3,12 +3,12 @@
 A full-body camera exercise game. A cartoon character copies your movements in real time:
 
 - **Step aside** from things falling from the sky (bomb, 25-ton weight, elephant, anvil, diving plane).
-- **Jump** over things racing along the ground (car, pig, bouncing tire). A 6-inch hop is enough to clear a car.
+- **Jump** over things racing along the ground: six vehicles (a sports car, a muscle car, a convertible, a jeep, an old pickup and an old Beetle, each at its own speed), a pig and a bouncing tire. A 6-inch hop clears every vehicle.
 - **Duck** under things flying at your head (eagle, missile, arrow, tomahawk, boomerang) and jump the eagle or boomerang when they come in low.
 
 Each thing makes a sound that gets louder as it gets closer and comes from its side of the screen.
 
-Stand the phone sideways about 2.5 to 3 metres away so it can see you from head to feet. Everything runs on the phone; the camera picture and photos never leave the device.
+Stand the phone sideways about 1.5 to 2 metres away so it can see your head and shoulders. (For now there is also a **Play without camera** button: arrow keys run, Space jumps, Down ducks, or on-screen buttons on a phone.) Everything runs on the phone; the camera picture and photos never leave the device.
 
 Built with [MediaPipe](https://developers.google.com/mediapipe) pose and face detection (Apache 2.0).
 

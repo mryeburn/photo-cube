@@ -84,6 +84,11 @@
   #banner small { display:block; font-size:18px; margin-top:6px; }
   #quitBtn { position:absolute; right:max(14px, env(safe-area-inset-right, 0px)); bottom:max(10px, env(safe-area-inset-bottom, 0px)); font-size:15px; padding:8px 16px; }
 
+  #touchPad { position:absolute; left:max(10px, env(safe-area-inset-left, 0px)); right:max(110px, env(safe-area-inset-right, 0px)); bottom:max(10px, env(safe-area-inset-bottom, 0px));
+    display:flex; justify-content:space-between; align-items:flex-end; pointer-events:none; }
+  #touchPad button { pointer-events:auto; touch-action:none; font-size:22px; min-width:84px; min-height:64px; padding:8px 14px; opacity:0.85; }
+  #touchPad button.on { transform:translateY(4px); box-shadow:0 1px 0 var(--ink); }
+  @media (hover: hover) and (pointer: fine) { #touchPad { display:none; } }
   #over .big { font-size:64px; color:var(--sun); text-shadow:4px 4px 0 var(--ink); line-height:1; font-variant-numeric:tabular-nums; }
   #overStats { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin:6px 0; }
   #overStats .pill b { font-size:26px; }
@@ -109,6 +114,8 @@
     <h1>Dodge It!</h1>
     <p>Step aside from things falling from the sky, jump over things on the ground, and duck under things flying at your head.</p>
     <button id="playBtn">Play</button>
+    <button id="keysBtn" class="alt" style="font-size:15px; padding:8px 16px">Play without camera</button>
+    <p style="font-size:12px">(for now: arrow keys run, Space jumps, Down ducks, or use the buttons on a phone)</p>
     <p style="font-size:13px">Stand the phone sideways (or open your Chromebook or laptop) at about chest height, 1.5 to 2 metres away, so the camera sees your head and shoulders with room above your head.</p>
     <p id="versionLabel" style="font-size:12px; opacity:0.7"></p>
   </div>
@@ -149,6 +156,10 @@
   </div>
   <div id="banner"></div>
   <button id="quitBtn" class="alt">Stop</button>
+  <div id="touchPad" hidden>
+    <div class="row"><button data-k="left" aria-label="Run left">◀</button><button data-k="right" aria-label="Run right">▶</button></div>
+    <div class="row"><button data-k="duck">Duck</button><button data-k="jump">Jump</button></div>
+  </div>
 </section>
 
 <section id="over" class="screen" hidden>

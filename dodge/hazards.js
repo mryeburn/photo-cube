@@ -8,6 +8,8 @@
 const OUTLINE = '#1f1a2e';
 
 const INK = 'rgba(28,30,40,0.85)';   // thin outline for the detailed drawings
+import { VEHICLES, drawVehicle, preloadVehicles } from './vehicles.js';
+export { preloadVehicles, VEHICLES };
 
 export const HAZARDS = {
   bomb:     { lane:'sky', scale:1.4, w:0.26, h:0.32, speed:0.95, draw:drawBomb, explodes:true },
@@ -15,7 +17,10 @@ export const HAZARDS = {
   elephant: { lane:'sky', scale:2.7, w:0.56, h:0.44, speed:0.9, hitR:0.5, tumbles:true, draw:drawElephant },
   anvil:    { lane:'sky', scale:1.4, w:0.38, h:0.22, speed:1.2,  draw:drawAnvil },
   plane:    { lane:'sky', scale:1.6, w:0.52, h:0.32, speed:1.05, hitR:0.24, dives:true, draw:drawPlane },
-  car:      { lane:'ground', scale:1.5, w:0.64, h:0.3, speed:3.5,  draw:drawCar },
+  // Six different vehicles (see vehicles.js), each with its own speed. Ground-lane picks choose 'car', and the
+  // game then picks one of them.
+  ...Object.fromEntries(Object.entries(VEHICLES).map(([k, V]) => [k, { lane:'ground', vehicle:true, scale:1, w:V.w * (V.size || 1), h:V.h * (V.size || 1), speed:3.5 * V.mul,
+    draw:(c, s, t, hz) => drawVehicle(c, k, s, t, hz) }])),
   pig:      { lane:'ground', scale:1.4, w:0.44, h:0.28, speed:3.06, draw:drawPig },
   tire:     { lane:'ground', scale:1.3, w:0.26, h:0.26, speed:2.0, draw:drawTire, bounce:true },
   eagle:    { lane:'air', scale:1.73, w:0.44, h:0.2, speed:2.25, hitR:0.12, swoops:true, draw:drawEagle },   // swoops down from high up
@@ -26,7 +31,9 @@ export const HAZARDS = {
   boomerang:{ lane:'air', scale:1.3, w:0.34, h:0.12, speed:2.4, returns:true, shaped:true, draw:drawBoomerang },        // out and back, spinning flat
 };
 export const BY_LANE = { sky:[], ground:[], air:[], ufo:[] };
-for (const [k, d] of Object.entries(HAZARDS)) BY_LANE[d.lane].push(k);
+for (const [k, d] of Object.entries(HAZARDS)) if (!d.vehicle) BY_LANE[d.lane].push(k);
+BY_LANE.ground.unshift('car');
+export const VEHICLE_KINDS = Object.keys(VEHICLES);
 
 function styled(c) { c.lineWidth = 3; c.strokeStyle = OUTLINE; c.lineJoin = 'round'; c.lineCap = 'round'; }
 function rr(c, x, y, w, h, r) { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); }
@@ -93,13 +100,23 @@ function drawElephant(c, s, t) {
   const tw = Math.sin(t / 110) * 0.04 * s;
   c.strokeStyle = '#6c737a'; c.lineWidth = 0.012 * s + 1; c.beginPath(); c.moveTo(-0.235 * s, -0.01 * s); c.quadraticCurveTo(-0.3 * s, tw, -0.31 * s, 0.07 * s); c.stroke();
   c.fillStyle = '#3d4247'; c.beginPath(); c.ellipse(-0.31 * s, 0.085 * s, 0.012 * s, 0.022 * s, 0.3, 0, 7); c.fill();
-  // body: shaded, darker underneath, with wrinkles
-  c.beginPath(); c.ellipse(0, 0.02 * s, 0.245 * s, 0.155 * s, 0, 0, 7); c.fillStyle = skin(-0.02 * s, -0.02 * s, 0.25 * s); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
-  const belly = c.createLinearGradient(0, 0.04 * s, 0, 0.175 * s); belly.addColorStop(0, 'rgba(40,44,50,0)'); belly.addColorStop(1, 'rgba(40,44,50,0.35)');
-  c.fillStyle = belly; c.beginPath(); c.ellipse(0, 0.02 * s, 0.245 * s, 0.155 * s, 0, 0, 7); c.fill();
-  for (const [x, b] of [[-0.12, 0.012], [-0.06, 0.016], [0.0, 0.014]]) wrinkle(x * s, -0.1 * s, (x + 0.02) * s, 0.12 * s, b * s);
+  // body: high at the shoulders, sloping to the rump, saggy belly; shaded, with creased, wrinkled skin
+  const body = new Path2D();
+  body.moveTo(-0.24 * s, 0.03 * s); body.bezierCurveTo(-0.25 * s, -0.08 * s, -0.17 * s, -0.12 * s, -0.08 * s, -0.125 * s);
+  body.bezierCurveTo(0.0, -0.14 * s, 0.1 * s, -0.17 * s, 0.17 * s, -0.12 * s); body.bezierCurveTo(0.24 * s, -0.06 * s, 0.24 * s, 0.06 * s, 0.17 * s, 0.13 * s);
+  body.bezierCurveTo(0.08 * s, 0.19 * s, -0.08 * s, 0.19 * s, -0.17 * s, 0.13 * s); body.bezierCurveTo(-0.22 * s, 0.1 * s, -0.24 * s, 0.07 * s, -0.24 * s, 0.03 * s); body.closePath();
+  c.fillStyle = skin(-0.02 * s, -0.04 * s, 0.26 * s); c.fill(body); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke(body);
+  c.save(); c.clip(body);
+  const belly = c.createLinearGradient(0, 0.02 * s, 0, 0.19 * s); belly.addColorStop(0, 'rgba(40,44,50,0)'); belly.addColorStop(1, 'rgba(40,44,50,0.4)');
+  c.fillStyle = belly; c.fillRect(-0.3 * s, 0, 0.6 * s, 0.2 * s);
+  skinTexture(c, s, -0.25, -0.17, 0.5, 0.36, 91);
+  c.restore();
+  for (const [x, b] of [[-0.14, 0.012], [-0.07, 0.016], [0.08, -0.014], [0.13, -0.012]]) wrinkle(x * s, -0.1 * s, (x + 0.02) * s, 0.14 * s, b * s);
   // head
-  c.beginPath(); c.arc(0.2 * s, -0.09 * s, 0.115 * s, 0, 7); c.fillStyle = skin(0.2 * s, -0.11 * s, 0.12 * s); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
+  const head = new Path2D(); head.arc(0.2 * s, -0.09 * s, 0.115 * s, 0, 7);
+  c.fillStyle = skin(0.2 * s, -0.11 * s, 0.12 * s); c.fill(head); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke(head);
+  c.save(); c.clip(head); skinTexture(c, s, 0.08, -0.21, 0.24, 0.24, 37);
+  c.fillStyle = 'rgba(255,255,255,0.12)'; c.beginPath(); c.ellipse(0.2 * s, -0.17 * s, 0.07 * s, 0.03 * s, -0.2, 0, 7); c.fill(); c.restore();   // domed forehead
   // trunk: a tapering, wrinkled tube that swings and curls
   const sw = Math.sin(t / 160), curl = Math.sin(t / 230 + 1);
   const p0 = [0.27 * s, -0.06 * s], p1 = [0.37 * s, -0.04 * s], p2 = [0.38 * s + sw * 0.05 * s, 0.04 * s + curl * 0.05 * s], p3 = [0.33 * s + sw * 0.1 * s, 0.13 * s + curl * 0.08 * s];
@@ -119,14 +136,38 @@ function drawElephant(c, s, t) {
   c.beginPath(); c.moveTo(0, -0.08 * s); c.bezierCurveTo(-0.13 * s, -0.12 * s, -0.16 * s, 0.06 * s, -0.06 * s, 0.11 * s); c.bezierCurveTo(-0.02 * s, 0.13 * s, 0.02 * s, 0.05 * s, 0, -0.08 * s);
   const ear = c.createRadialGradient(-0.05 * s, 0, 0.01 * s, -0.05 * s, 0, 0.13 * s); ear.addColorStop(0, '#c9a7a4'); ear.addColorStop(0.6, '#9a9fa5'); ear.addColorStop(1, '#6f767d');
   c.fillStyle = ear; c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
+  c.strokeStyle = 'rgba(150,90,95,0.45)'; c.lineWidth = 1;                                  // veins in the ear
+  for (const [x2, y2] of [[-0.1, -0.06], [-0.11, 0.02], [-0.07, 0.08]]) { c.beginPath(); c.moveTo(-0.01 * s, -0.02 * s); c.quadraticCurveTo(-0.05 * s, (y2 - 0.02) * s, x2 * s, y2 * s); c.stroke(); }
   wrinkle(-0.03 * s, -0.04 * s, -0.09 * s, 0.05 * s, 0.01 * s); c.restore();
-  // eye, wide with alarm, and a sweat drop
-  c.fillStyle = '#fff'; c.beginPath(); c.ellipse(0.245 * s, -0.125 * s, 0.022 * s, 0.018 * s, 0, 0, 7); c.fill();
-  c.fillStyle = '#2b1d14'; c.beginPath(); c.arc(0.25 * s, -0.125 * s, 0.011 * s, 0, 7); c.fill();
-  c.fillStyle = '#fff'; c.beginPath(); c.arc(0.254 * s, -0.129 * s, 0.004 * s, 0, 7); c.fill();
-  c.strokeStyle = 'rgba(40,40,40,0.7)'; c.lineWidth = 1.2; c.beginPath(); c.arc(0.245 * s, -0.12 * s, 0.026 * s, Math.PI * 1.15, Math.PI * 1.85); c.stroke();
-  const drop = c.createLinearGradient(0, -0.23 * s, 0, -0.18 * s); drop.addColorStop(0, '#e7f5ff'); drop.addColorStop(1, '#4dabf7');
-  c.fillStyle = drop; c.beginPath(); c.moveTo(0.32 * s, -0.235 * s); c.quadraticCurveTo(0.34 * s, -0.19 * s, 0.32 * s, -0.18 * s); c.quadraticCurveTo(0.3 * s, -0.19 * s, 0.32 * s, -0.235 * s); c.fill();
+  // a small, wrinkle-ringed elephant eye with long lashes (wide open: it is falling!)
+  c.fillStyle = 'rgba(50,54,60,0.5)'; c.beginPath(); c.ellipse(0.248 * s, -0.122 * s, 0.022 * s, 0.015 * s, -0.2, 0, 7); c.fill();
+  c.fillStyle = '#f1ece2'; c.beginPath(); c.ellipse(0.248 * s, -0.122 * s, 0.013 * s, 0.009 * s, -0.2, 0, 7); c.fill();
+  c.fillStyle = '#5a3a1c'; c.beginPath(); c.arc(0.251 * s, -0.122 * s, 0.0075 * s, 0, 7); c.fill();
+  c.fillStyle = '#0c0c0c'; c.beginPath(); c.arc(0.252 * s, -0.122 * s, 0.004 * s, 0, 7); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(0.254 * s, -0.125 * s, 0.002 * s, 0, 7); c.fill();
+  c.strokeStyle = '#2a2d31'; c.lineWidth = 1;
+  for (let i = 0; i < 5; i++) { const x = 0.24 + i * 0.005; c.beginPath(); c.moveTo(x * s, -0.13 * s); c.lineTo((x - 0.004) * s, -0.139 * s); c.stroke(); }
+  for (const r of [0.019, 0.025]) { c.strokeStyle = 'rgba(55,60,66,0.5)'; c.beginPath(); c.ellipse(0.248 * s, -0.122 * s, r * s, r * 0.7 * s, -0.2, 0.2, Math.PI - 0.2); c.stroke(); }
+}
+// Brushed metal: fine lengthwise grain, some lines brighter, some darker. (Call inside a clip.)
+function brushed(c, s, x0, y0, w, h, seed) {
+  let r = seed; const rnd = () => { r = (r * 16807) % 2147483647; return (r - 1) / 2147483646; };
+  c.lineWidth = 0.7;
+  for (let i = 0; i < 60; i++) {
+    const y = (y0 + rnd() * h) * s, x = (x0 + rnd() * w * 0.6) * s, l = (0.05 + rnd() * w * 0.5) * s;
+    c.strokeStyle = rnd() < 0.5 ? 'rgba(255,255,255,0.22)' : 'rgba(40,45,50,0.18)';
+    c.beginPath(); c.moveTo(x, y); c.lineTo(x + l, y); c.stroke();
+  }
+}
+// Thick grey skin: a net of fine creases, with lighter dust in the folds. Deterministic so it doesn't flicker.
+function skinTexture(c, s, x0, y0, w, h, seed) {
+  let r = seed; const rnd = () => { r = (r * 16807) % 2147483647; return (r - 1) / 2147483646; };
+  c.lineWidth = 0.8;
+  for (let i = 0; i < 90; i++) {
+    const x = (x0 + rnd() * w) * s, y = (y0 + rnd() * h) * s, l = (0.01 + rnd() * 0.025) * s, a = rnd() * Math.PI;
+    c.strokeStyle = rnd() < 0.7 ? 'rgba(45,50,56,0.28)' : 'rgba(225,228,230,0.22)';
+    c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + Math.cos(a) * l * 0.5, y + Math.sin(a) * l * 0.5 + l * 0.2, x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke();
+  }
 }
 // A blacksmith's anvil: forged steel, a polished working face, a tapering horn, a heavy waisted base.
 function drawAnvil(c, s) {
@@ -175,63 +216,6 @@ function drawPlane(c, s, t) {
 
 // A red sedan, side view: glossy shaded paintwork with a reflection, tinted windows reflecting the sky,
 // chrome trim, door lines, headlight glow, tail light, and wheels with tyre tread and spoked rims that turn.
-function drawCar(c, s, t) {
-  // speed streaks behind it
-  for (let i = 0; i < 4; i++) { c.fillStyle = `rgba(255,255,255,${0.5 - i * 0.1})`; c.fillRect(-0.55 * s - i * 0.05 * s, -0.09 * s + i * 0.055 * s, 0.16 * s, 0.01 * s); }
-  // shadow on the ground
-  const sh = c.createRadialGradient(0, 0.15 * s, 0, 0, 0.15 * s, 0.34 * s); sh.addColorStop(0, 'rgba(0,0,0,0.35)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
-  c.fillStyle = sh; c.beginPath(); c.ellipse(0, 0.15 * s, 0.34 * s, 0.03 * s, 0, 0, 7); c.fill();
-  // body
-  const body = new Path2D();
-  body.moveTo(-0.31 * s, 0.09 * s); body.lineTo(-0.315 * s, -0.005 * s); body.quadraticCurveTo(-0.31 * s, -0.05 * s, -0.25 * s, -0.055 * s);
-  body.lineTo(-0.16 * s, -0.06 * s); body.quadraticCurveTo(-0.11 * s, -0.135 * s, -0.04 * s, -0.14 * s); body.lineTo(0.07 * s, -0.14 * s);
-  body.quadraticCurveTo(0.12 * s, -0.135 * s, 0.17 * s, -0.065 * s); body.quadraticCurveTo(0.28 * s, -0.06 * s, 0.315 * s, -0.03 * s);
-  body.quadraticCurveTo(0.33 * s, 0.0, 0.325 * s, 0.09 * s); body.closePath();
-  const paint = c.createLinearGradient(0, -0.14 * s, 0, 0.09 * s);
-  paint.addColorStop(0, '#ff6b5e'); paint.addColorStop(0.25, '#e8241c'); paint.addColorStop(0.6, '#b3140f'); paint.addColorStop(1, '#6e0a08');
-  c.fillStyle = paint; c.fill(body); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke(body);
-  // reflection along the side
-  c.save(); c.clip(body);
-  const refl = c.createLinearGradient(0, -0.04 * s, 0, 0.01 * s); refl.addColorStop(0, 'rgba(255,255,255,0)'); refl.addColorStop(0.5, 'rgba(255,255,255,0.45)'); refl.addColorStop(1, 'rgba(255,255,255,0)');
-  c.fillStyle = refl; c.fillRect(-0.32 * s, -0.04 * s, 0.65 * s, 0.05 * s);
-  c.restore();
-  // windows: tinted glass reflecting the sky
-  const glass = c.createLinearGradient(0, -0.13 * s, 0, -0.065 * s); glass.addColorStop(0, '#cfe8ff'); glass.addColorStop(0.5, '#6f9cc9'); glass.addColorStop(1, '#2c4a6b');
-  c.fillStyle = glass; c.strokeStyle = '#d0d4d8'; c.lineWidth = 1.5;
-  for (const pts of [[[-0.145, -0.065], [-0.1, -0.125], [-0.04, -0.13], [-0.035, -0.065]], [[-0.02, -0.065], [-0.02, -0.13], [0.065, -0.13], [0.15, -0.065]]]) {
-    c.beginPath(); pts.forEach(([x, y], i) => i ? c.lineTo(x * s, y * s) : c.moveTo(x * s, y * s)); c.closePath(); c.fill(); c.stroke();
-  }
-  c.fillStyle = 'rgba(255,255,255,0.5)'; c.beginPath(); c.moveTo(0.0, -0.125 * s); c.lineTo(0.03 * s, -0.125 * s); c.lineTo(0.0, -0.07 * s); c.lineTo(-0.012 * s, -0.07 * s); c.closePath(); c.fill(); // glint
-  // chrome trim, door seams and handles
-  c.strokeStyle = '#dee2e6'; c.lineWidth = 2; c.beginPath(); c.moveTo(-0.29 * s, 0.03 * s); c.lineTo(0.3 * s, 0.03 * s); c.stroke();
-  c.strokeStyle = 'rgba(60,0,0,0.6)'; c.lineWidth = 1.2;
-  for (const x of [-0.03, 0.15]) { c.beginPath(); c.moveTo(x * s, -0.06 * s); c.lineTo(x * s, 0.085 * s); c.stroke(); }
-  c.fillStyle = '#ced4da'; c.fillRect(-0.005 * s, -0.035 * s, 0.025 * s, 0.008 * s); c.fillRect(0.12 * s, -0.035 * s, 0.025 * s, 0.008 * s);
-  // bumpers
-  c.fillStyle = '#343a40'; c.beginPath(); c.roundRect ? c.roundRect(0.29 * s, 0.05 * s, 0.045 * s, 0.035 * s, 0.01 * s) : c.rect(0.29 * s, 0.05 * s, 0.045 * s, 0.035 * s); c.fill();
-  c.beginPath(); c.roundRect ? c.roundRect(-0.325 * s, 0.05 * s, 0.04 * s, 0.035 * s, 0.01 * s) : c.rect(-0.325 * s, 0.05 * s, 0.04 * s, 0.035 * s); c.fill();
-  // headlight with a glow, and the tail light
-  const hl = c.createRadialGradient(0.31 * s, -0.012 * s, 0, 0.31 * s, -0.012 * s, 0.1 * s); hl.addColorStop(0, 'rgba(255,250,210,0.9)'); hl.addColorStop(1, 'rgba(255,250,210,0)');
-  c.fillStyle = hl; c.beginPath(); c.arc(0.31 * s, -0.012 * s, 0.1 * s, 0, 7); c.fill();
-  c.fillStyle = '#fff9db'; c.beginPath(); c.ellipse(0.31 * s, -0.012 * s, 0.014 * s, 0.02 * s, 0, 0, 7); c.fill(); c.strokeStyle = INK; c.lineWidth = 1; c.stroke();
-  c.fillStyle = '#ff2d2d'; c.beginPath(); c.ellipse(-0.307 * s, -0.012 * s, 0.009 * s, 0.018 * s, 0, 0, 7); c.fill(); c.stroke();
-  // wheels: dark arches, tyres with tread, spoked rims that turn
-  for (const x of [-0.18, 0.18]) {
-    const cx = x * s, cy = 0.085 * s, R = 0.068 * s;
-    c.fillStyle = '#1a1a1a'; c.beginPath(); c.arc(cx, cy - 0.005 * s, R * 1.12, Math.PI, 0); c.fill();   // wheel arch
-    const tyre = c.createRadialGradient(cx - R * 0.3, cy - R * 0.3, R * 0.2, cx, cy, R); tyre.addColorStop(0, '#4a4a4a'); tyre.addColorStop(1, '#161616');
-    c.fillStyle = tyre; c.beginPath(); c.arc(cx, cy, R, 0, 7); c.fill();
-    c.save(); c.translate(cx, cy); c.rotate(t / 60);
-    c.strokeStyle = '#0c0c0c'; c.lineWidth = 2;
-    for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2; c.beginPath(); c.moveTo(Math.cos(a) * R * 0.85, Math.sin(a) * R * 0.85); c.lineTo(Math.cos(a) * R, Math.sin(a) * R); c.stroke(); }
-    const rim = c.createRadialGradient(-R * 0.2, -R * 0.2, 0, 0, 0, R * 0.6); rim.addColorStop(0, '#f8f9fa'); rim.addColorStop(1, '#868e96');
-    c.fillStyle = rim; c.beginPath(); c.arc(0, 0, R * 0.58, 0, 7); c.fill();
-    c.strokeStyle = '#495057'; c.lineWidth = R * 0.12;
-    for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; c.beginPath(); c.moveTo(Math.cos(a) * R * 0.12, Math.sin(a) * R * 0.12); c.lineTo(Math.cos(a) * R * 0.52, Math.sin(a) * R * 0.52); c.stroke(); }
-    c.fillStyle = '#343a40'; c.beginPath(); c.arc(0, 0, R * 0.12, 0, 7); c.fill();
-    c.restore();
-  }
-}
 // A running pig: shaded pink hide, a wet snout, floppy ears, a curly tail and trotting legs with hooves.
 function drawPig(c, s, t) {
   const run = Math.sin(t / 55);
@@ -248,6 +232,12 @@ function drawPig(c, s, t) {
   c.bezierCurveTo(-0.27 * s, -0.08 * s, -0.22 * s, -0.12 * s, -0.25 * s, -0.04 * s); c.stroke();
   c.beginPath(); c.ellipse(0, 0, 0.2 * s, 0.11 * s, 0, 0, 7); c.fillStyle = pink(-0.02 * s, -0.02 * s, 0.2 * s); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
   c.strokeStyle = 'rgba(180,90,120,0.35)'; c.lineWidth = 1; c.beginPath(); c.moveTo(-0.08 * s, 0.07 * s); c.quadraticCurveTo(0, 0.1 * s, 0.08 * s, 0.07 * s); c.stroke();   // belly crease
+  c.save(); c.beginPath(); c.ellipse(0, 0, 0.2 * s, 0.11 * s, 0, 0, 7); c.clip();                          // bristles and mud
+  c.strokeStyle = 'rgba(255,240,240,0.5)'; c.lineWidth = 0.7;
+  for (let i = 0; i < 26; i++) { const x = (-0.18 + i * 0.014) * s, y = -Math.sqrt(Math.max(0, 1 - (x / (0.2 * s)) ** 2)) * 0.11 * s; c.beginPath(); c.moveTo(x, y + 0.004 * s); c.lineTo(x - 0.006 * s, y - 0.006 * s); c.stroke(); }
+  c.fillStyle = 'rgba(110,80,50,0.45)';
+  for (const [x, y, r] of [[-0.12, 0.06, 0.03], [-0.05, 0.085, 0.022], [0.09, 0.075, 0.018], [-0.16, 0.02, 0.016]]) { c.beginPath(); c.ellipse(x * s, y * s, r * s, r * 0.6 * s, 0.3, 0, 7); c.fill(); }
+  c.restore();
   c.beginPath(); c.arc(0.18 * s, -0.04 * s, 0.09 * s, 0, 7); c.fillStyle = pink(0.18 * s, -0.05 * s, 0.09 * s); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
   c.save(); c.translate(0.15 * s, -0.11 * s); c.rotate(0.6 + Math.sin(t / 70) * 0.15);                     // floppy ear
   c.beginPath(); c.moveTo(0, 0); c.quadraticCurveTo(0.05 * s, -0.04 * s, 0.07 * s, 0.01 * s); c.quadraticCurveTo(0.03 * s, 0.03 * s, 0, 0); c.fillStyle = '#e88aa8'; c.fill(); c.stroke(); c.restore();
@@ -339,7 +329,7 @@ function drawMissile(c, s, t) {
   const metal = c.createLinearGradient(0, -0.04 * s, 0, 0.04 * s);
   metal.addColorStop(0, '#9aa1a8'); metal.addColorStop(0.25, '#f4f6f8'); metal.addColorStop(0.55, '#c3c9cf'); metal.addColorStop(1, '#5b6168');
   c.fillStyle = metal; c.fill(body);
-  c.save(); c.clip(body);
+  c.save(); c.clip(body); brushed(c, s, -0.22, -0.045, 0.5, 0.09, 13);
   const nose = c.createLinearGradient(0, -0.04 * s, 0, 0.04 * s); nose.addColorStop(0, '#a61e1e'); nose.addColorStop(0.3, '#ff5a5a'); nose.addColorStop(1, '#6b0f0f');
   c.fillStyle = nose; c.fillRect(0.14 * s, -0.05 * s, 0.14 * s, 0.1 * s);
   c.fillStyle = '#e8590c'; c.fillRect(0.05 * s, -0.05 * s, 0.018 * s, 0.1 * s);                     // warning band
@@ -491,7 +481,7 @@ function drawUfo(c, s, t) {
   const hull = new Path2D(); hull.ellipse(0, 0, 0.26 * s, 0.06 * s, 0, 0, 7);
   const metal = c.createLinearGradient(0, -0.06 * s, 0, 0.06 * s);
   metal.addColorStop(0, '#f8f9fa'); metal.addColorStop(0.4, '#c5cbd1'); metal.addColorStop(0.55, '#7d858d'); metal.addColorStop(1, '#3d434a');
-  c.fillStyle = metal; c.fill(hull); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke(hull);
+  c.fillStyle = metal; c.fill(hull); c.save(); c.clip(hull); brushed(c, s, -0.27, -0.065, 0.54, 0.13, 29); c.restore(); c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke(hull);
   c.strokeStyle = 'rgba(255,255,255,0.6)'; c.lineWidth = 1.5; c.beginPath(); c.ellipse(0, -0.01 * s, 0.2 * s, 0.03 * s, 0, Math.PI * 1.1, Math.PI * 1.9); c.stroke();  // sheen
   c.fillStyle = '#495057'; c.beginPath(); c.ellipse(0, 0.012 * s, 0.25 * s, 0.022 * s, 0, 0, Math.PI); c.fill();                  // rim band
   // ring of rotating lights round the rim: bright at the front, dim going behind

@@ -2,7 +2,7 @@
 // step aside from things falling from the sky, jump over things on the ground and duck under things
 // flying at head height.
 import { FilesetResolver, PoseLandmarker, FaceDetector } from './lib/mediapipe/vision_bundle.mjs';
-import { HAZARDS, BY_LANE, drawHazard, sizeOf, drawWreck } from './hazards.js';
+import { HAZARDS, BY_LANE, VEHICLES, VEHICLE_KINDS, drawHazard, sizeOf, drawWreck, preloadVehicles } from './hazards.js';
 import { createVoice, loadSamples, scream, groan, fire, laserCharge, laserShot, villainVoice, swoosh, pow, knockout } from './hazard-sounds.js';
 import { drawVillain } from './villain.js';
 import { drawScenery as paintScenery } from './scenery.js';
@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '2.7';
+const VERSION = '2.8';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -108,6 +108,7 @@ async function startCamera() {
 let lm = null, lastVideoTime = -1, lastSeen = 0;
 function track(now) {
   if (window.__dgFakePose) { smoothInto(window.__dgFakePose(now)); lastSeen = now; return; } // automated tests
+  if (keyMode) { smoothInto(keyPose(now)); lastSeen = now; return; }                          // playing with keys
   if (!pose || video.readyState < 2 || video.currentTime === lastVideoTime) return;
   lastVideoTime = video.currentTime;
   let res;
@@ -115,6 +116,48 @@ function track(now) {
   try { res = pose.detectForVideo(video, now); } catch (e) { return; }
   watchSpeed(performance.now() - t0);
   if (res.landmarks && res.landmarks.length) { smoothInto(res.landmarks[0]); lastSeen = now; }
+}
+
+// ---------------------------------------------------------------- playing without the camera (temporary)
+// Arrow keys (or the on-screen buttons) drive a pretend person standing in front of the camera, so the game
+// works exactly as it does with a real player: left/right run, Space jumps (as high as a 6 inch jump, which
+// clears every vehicle), Down ducks (as low as a 20 cm duck).
+let keyMode = false;
+const keys = { left:false, right:false, duck:false, jumpAt:null, x:0, last:0 };
+const STAND = { 0:[.5,.2], 2:[.51,.19], 5:[.49,.19], 7:[.52,.2], 8:[.48,.2], 11:[.56,.3], 12:[.44,.3], 13:[.58,.42], 14:[.42,.42],
+  15:[.58,.53], 16:[.42,.53], 23:[.54,.55], 24:[.46,.55], 25:[.54,.72], 26:[.46,.72], 27:[.54,.88], 28:[.46,.88] };
+function keyPose(now) {
+  const dt = Math.min(50, now - (keys.last || now)) / 1000; keys.last = now;
+  const run = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  keys.x = clamp(keys.x - run * dt * 0.4, -0.75, 0.75);               // the camera picture is mirrored on screen
+  let jump = 0;
+  if (keys.jumpAt != null) { const u = (now - keys.jumpAt) / 500; if (u < 1) jump = 0.088 * Math.sin(Math.PI * u); else if (u > 1.5) keys.jumpAt = null; }
+  const duck = keys.duck && !jump ? 20 / 170 / 0.77 : 0, bodyH = 0.71;
+  return Array.from({ length: 33 }, (_, i) => {
+    const p = STAND[i]; if (!p) return { x:.5, y:.5, visibility:.1 };
+    let px = p[0] + keys.x, py = p[1] + 0.15 - jump * bodyH;
+    if (duck && i < 23) py += duck * bodyH * (i < 11 ? 1 : 0.8);
+    if (duck && (i === 23 || i === 24)) py += duck * bodyH * 0.5;
+    return { x: px, y: py, visibility: py > 1 ? 0.05 : .99 };
+  });
+}
+function setKey(name, down) {
+  if (name === 'jump') { if (down && keys.jumpAt == null) keys.jumpAt = performance.now(); return; }
+  keys[name] = down;
+}
+const KEYMAP = { ArrowLeft:'left', ArrowRight:'right', ArrowDown:'duck', ' ':'jump', Spacebar:'jump', ArrowUp:'jump' };
+for (const type of ['keydown', 'keyup']) window.addEventListener(type, e => {
+  if (!keyMode || screen !== 'game' || !KEYMAP[e.key]) return;
+  e.preventDefault(); if (!e.repeat || type === 'keyup') setKey(KEYMAP[e.key], type === 'keydown');
+});
+function setKeyMode(on) {
+  keyMode = on; Object.assign(keys, { left:false, right:false, duck:false, jumpAt:null, x:0, last:0 }); lm = null;
+  $('touchPad').hidden = !on; $('handsHint').hidden = on;
+}
+for (const b of document.querySelectorAll('#touchPad button')) {
+  const name = b.dataset.k, on = e => { e.preventDefault(); b.classList.add('on'); setKey(name, true); }, off = e => { e.preventDefault(); b.classList.remove('on'); setKey(name, false); };
+  b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('pointerleave', off);
+  b.addEventListener('contextmenu', e => e.preventDefault());
 }
 
 // On slower computers (many Chromebooks) the accurate model can be too slow to follow a jump. If each
@@ -299,6 +342,26 @@ function drawHead(c, p, h, mood = 'neutral', now = 0) {
   c.fillStyle = hair; c.beginPath(); c.moveTo(-r, -r * 0.2); c.quadraticCurveTo(-r * 0.9, -r * 1.15, 0, -r * 1.05); c.quadraticCurveTo(r * 0.95, -r * 1.1, r, -r * 0.25);
   c.quadraticCurveTo(r * 0.75, -r * 0.62, r * 0.2, -r * 0.66); c.quadraticCurveTo(-r * 0.3, -r * 0.7, -r * 0.62, -r * 0.5); c.quadraticCurveTo(-r * 0.8, -r * 0.4, -r, -r * 0.2); c.fill();
   c.fillStyle = 'rgba(200,200,200,0.35)'; for (const sx of [-1, 1]) { c.beginPath(); c.ellipse(sx * r * 0.8, -r * 0.3, r * 0.1, r * 0.22, 0, 0, 7); c.fill(); }
+  c.lineWidth = Math.max(0.6, r * 0.015);                                    // combed strands
+  for (let i = 0; i < 14; i++) {
+    const x = -r * 0.85 + i * r * 0.13; c.strokeStyle = i % 3 ? 'rgba(120,95,70,0.5)' : 'rgba(25,18,12,0.5)';
+    c.beginPath(); c.moveTo(x * 0.6 - r * 0.05, -r * 1.0); c.quadraticCurveTo(x, -r * 0.85, x * 1.05 + r * 0.04, -r * 0.6 + Math.abs(x) * 0.4); c.stroke();
+  }
+  // cheekbones catching the light, shadow beside the nose, and a day's stubble on the jaw and chin
+  for (const sx of [-1, 1]) {
+    const ch = c.createRadialGradient(sx * r * 0.45, r * 0.12, 0, sx * r * 0.45, r * 0.12, r * 0.3); ch.addColorStop(0, 'rgba(255,225,200,0.3)'); ch.addColorStop(1, 'rgba(255,225,200,0)');
+    c.fillStyle = ch; c.beginPath(); c.arc(sx * r * 0.45, r * 0.12, r * 0.3, 0, 7); c.fill();
+    c.strokeStyle = 'rgba(120,70,50,0.25)'; c.lineWidth = Math.max(1, r * 0.03); c.beginPath(); c.moveTo(sx * r * 0.17, r * 0.3); c.quadraticCurveTo(sx * r * 0.3, r * 0.45, sx * r * 0.27, r * 0.62); c.stroke();
+  }
+  let sd = 7; const rnd = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+  const jaw = c.createRadialGradient(0, r * 0.75, r * 0.1, 0, r * 0.55, r * 0.8); jaw.addColorStop(0, 'rgba(70,62,62,0.2)'); jaw.addColorStop(1, 'rgba(70,62,62,0)');
+  c.fillStyle = jaw; c.fillRect(-r, r * 0.3, r * 2, r);                         // a five o'clock shadow
+  c.fillStyle = 'rgba(60,45,35,0.12)';
+  for (let i = 0; i < 160; i++) {
+    const a = rnd() * Math.PI, d = r * (0.55 + rnd() * 0.45), x = Math.cos(a) * d * 0.84, y = r * 0.04 + Math.sin(a) * d;
+    if (y < r * 0.3 || (Math.abs(x) < r * 0.24 && Math.abs(y - r * 0.52) < r * 0.1)) continue;
+    c.fillRect(x, y, Math.max(0.5, r * 0.01), Math.max(0.5, r * 0.01));
+  }
   c.restore();
   // eyebrows, eyes, nose and mouth by mood
   const alarm = mood === 'alarm', pain = mood === 'pain';
@@ -319,6 +382,7 @@ function drawHead(c, p, h, mood = 'neutral', now = 0) {
       c.fillStyle = '#5a7a3a'; c.beginPath(); c.arc(ex, ey, alarm ? r * 0.055 : r * 0.07, 0, 7); c.fill();     // iris (smaller, staring, when alarmed)
       c.fillStyle = '#111'; c.beginPath(); c.arc(ex, ey, r * 0.032, 0, 7); c.fill();
       c.fillStyle = '#fff'; c.beginPath(); c.arc(ex - r * 0.02, ey - r * 0.02, r * 0.014, 0, 7); c.fill();
+      c.strokeStyle = '#2a1d16'; c.lineWidth = Math.max(1, r * 0.045); c.beginPath(); c.ellipse(ex, ey, ew, eh, 0, Math.PI * 1.05, Math.PI * 1.95); c.stroke();   // lashes along the upper lid
       if (!alarm) { c.strokeStyle = shade(skin, -0.35); c.lineWidth = Math.max(1, r * 0.035); c.beginPath(); c.ellipse(ex, ey - r * 0.005, ew * 1.02, eh * 1.15, 0, Math.PI * 1.1, Math.PI * 1.9); c.stroke(); }   // lid
     }
   }
@@ -352,7 +416,7 @@ function limb2(c, a, b, w0, w1, color) {
   const g = c.createLinearGradient(a.x + nx * w0 / 2, a.y + ny * w0 / 2, a.x - nx * w0 / 2, a.y - ny * w0 / 2);
   g.addColorStop(0, shade(color, -0.3)); g.addColorStop(0.45, color); g.addColorStop(0.8, shade(color, 0.15)); g.addColorStop(1, shade(color, -0.15));
   c.fillStyle = g; c.fill(path);
-  c.strokeStyle = OUTLINE; c.lineWidth = 2; c.beginPath();                 // outline the sides only, so joints blend
+  c.strokeStyle = shade(color, -0.6); c.lineWidth = 1.5; c.beginPath();    // outline the sides only, so joints blend
   c.moveTo(a.x + nx * w0 / 2, a.y + ny * w0 / 2); c.lineTo(b.x + nx * w1 / 2, b.y + ny * w1 / 2);
   c.moveTo(a.x - nx * w0 / 2, a.y - ny * w0 / 2); c.lineTo(b.x - nx * w1 / 2, b.y - ny * w1 / 2); c.stroke();
   return path;
@@ -360,25 +424,30 @@ function limb2(c, a, b, w0, w1, color) {
 function hand(c, el, wr, s, skin) {
   const a = Math.atan2(wr.y - el.y, wr.x - el.x);
   c.save(); c.translate(wr.x, wr.y); c.rotate(a);
-  const g = c.createRadialGradient(0, -s * 0.01, 0, 0, 0, s * 0.045); g.addColorStop(0, shade(skin, 0.1)); g.addColorStop(1, shade(skin, -0.2));
-  c.fillStyle = g; c.strokeStyle = OUTLINE; c.lineWidth = 2;
-  c.beginPath(); c.ellipse(s * 0.025, 0, s * 0.033, s * 0.024, 0, 0, 7); c.fill(); c.stroke();              // palm and fingers
-  c.beginPath(); c.ellipse(s * 0.015, -s * 0.022, s * 0.014, s * 0.008, -0.6, 0, 7); c.fill(); c.stroke();    // thumb
-  c.strokeStyle = shade(skin, -0.3); c.lineWidth = 1;
-  for (const y of [-0.008, 0.004, 0.015]) { c.beginPath(); c.moveTo(s * 0.035, y * s); c.lineTo(s * 0.053, y * s); c.stroke(); }   // finger lines
+  const g = c.createRadialGradient(s * 0.01, -s * 0.01, 0, s * 0.02, 0, s * 0.05); g.addColorStop(0, shade(skin, 0.12)); g.addColorStop(1, shade(skin, -0.22));
+  c.fillStyle = g; c.strokeStyle = shade(skin, -0.5); c.lineWidth = 1.2;
+  for (let i = 0; i < 4; i++) {                                                // four fingers, slightly curled, ring and little finger shorter
+    const y = (-0.013 + i * 0.009) * s, len = [0.03, 0.033, 0.031, 0.025][i] * s;
+    c.beginPath(); c.moveTo(s * 0.028, y - s * 0.004); c.quadraticCurveTo(s * 0.028 + len, y - s * 0.004, s * 0.028 + len * 0.95, y + s * 0.003);
+    c.quadraticCurveTo(s * 0.028 + len * 0.6, y + s * 0.006, s * 0.028, y + s * 0.004); c.closePath(); c.fill(); c.stroke();
+  }
+  c.beginPath(); c.ellipse(s * 0.018, 0, s * 0.024, s * 0.021, 0, 0, 7); c.fill(); c.stroke();                // palm
+  c.beginPath(); c.moveTo(s * 0.012, -s * 0.016); c.quadraticCurveTo(s * 0.03, -s * 0.034, s * 0.045, -s * 0.026); c.quadraticCurveTo(s * 0.03, -s * 0.018, s * 0.024, -s * 0.01); c.closePath(); c.fill(); c.stroke();   // thumb
   c.restore();
 }
 function shoe(c, an, ft, s) {
   const dir = Math.sign(ft.x - an.x) || 1;
   c.save(); c.translate(an.x, an.y + s * 0.012); c.scale(dir, 1);
-  const up = c.createLinearGradient(0, -s * 0.03, 0, s * 0.02); up.addColorStop(0, '#6b4a33'); up.addColorStop(1, '#3a2618');
-  c.fillStyle = up; c.strokeStyle = OUTLINE; c.lineWidth = 2;
-  c.beginPath(); c.moveTo(-s * 0.03, s * 0.015); c.lineTo(-s * 0.03, -s * 0.02); c.quadraticCurveTo(0, -s * 0.035, s * 0.03, -s * 0.012);
-  c.quadraticCurveTo(s * 0.085, -s * 0.008, s * 0.09, s * 0.015); c.closePath(); c.fill(); c.stroke();
-  c.fillStyle = '#1e1e1e'; c.fillRect(-s * 0.033, s * 0.012, s * 0.126, s * 0.012);                            // sole
-  c.strokeStyle = '#e9e4da'; c.lineWidth = 1.2;
-  for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(s * (0.005 + i * 0.012), -s * 0.026 + i * s * 0.003); c.lineTo(s * (0.015 + i * 0.012), -s * 0.018 + i * s * 0.003); c.stroke(); }   // laces
-  c.fillStyle = 'rgba(255,255,255,0.25)'; c.beginPath(); c.ellipse(s * 0.06, -s * 0.004, s * 0.015, s * 0.005, -0.2, 0, 7); c.fill();
+  // trainers: a dark upper with a pale stripe, a thick white sole with a grey tread, laces
+  const up = c.createLinearGradient(0, -s * 0.035, 0, s * 0.015); up.addColorStop(0, '#5a6270'); up.addColorStop(1, '#262b33');
+  c.fillStyle = up; c.strokeStyle = OUTLINE; c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(-s * 0.03, s * 0.012); c.lineTo(-s * 0.032, -s * 0.022); c.quadraticCurveTo(-s * 0.005, -s * 0.038, s * 0.025, -s * 0.018);
+  c.quadraticCurveTo(s * 0.08, -s * 0.012, s * 0.09, s * 0.012); c.closePath(); c.fill(); c.stroke();
+  c.strokeStyle = 'rgba(235,235,230,0.8)'; c.lineWidth = Math.max(1, s * 0.004); c.beginPath(); c.moveTo(-s * 0.02, s * 0.004); c.quadraticCurveTo(s * 0.02, -s * 0.004, s * 0.05, -s * 0.012); c.stroke();
+  c.fillStyle = '#f4f3ee'; c.beginPath(); c.roundRect ? c.roundRect(-s * 0.035, s * 0.008, s * 0.13, s * 0.016, s * 0.006) : c.rect(-s * 0.035, s * 0.008, s * 0.13, s * 0.016); c.fill(); c.strokeStyle = OUTLINE; c.lineWidth = 1.2; c.stroke();
+  c.fillStyle = '#8a8d91'; c.fillRect(-s * 0.033, s * 0.02, s * 0.126, s * 0.004);
+  c.strokeStyle = '#eceae3'; c.lineWidth = 1.1;
+  for (let i = 0; i < 4; i++) { c.beginPath(); c.moveTo(s * (0.0 + i * 0.01), -s * 0.03 + i * s * 0.004); c.lineTo(s * (0.01 + i * 0.01), -s * 0.022 + i * s * 0.004); c.stroke(); }
   c.restore();
 }
 
@@ -400,9 +469,19 @@ function drawCharacter(c, k, p, hurt, mood = 'neutral', now = performance.now())
   }
   // legs (trousers) and shoes
   for (const [h, kn, an, ft] of [[k.lHip, k.lKnee, k.lAnk, k.lFoot], [k.rHip, k.rKnee, k.rAnk, k.rFoot]]) {
-    limb2(c, h, kn, s * 0.1, s * 0.075, pants); limb2(c, kn, an, s * 0.072, s * 0.06, pants);
-    c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1.2;
-    c.beginPath(); c.moveTo((h.x + kn.x) / 2, (h.y + kn.y) / 2); c.lineTo(kn.x, kn.y); c.lineTo((kn.x + an.x) / 2, (kn.y + an.y) / 2); c.stroke();   // crease
+    const up = limb2(c, h, kn, s * 0.1, s * 0.075, pants), lo = limb2(c, kn, an, s * 0.072, s * 0.06, pants);
+    // denim: a fine diagonal twill, a faded knee, and the orange stitching down the outside seam
+    for (const part of [up, lo]) {
+      c.save(); c.clip(part);
+      c.strokeStyle = 'rgba(255,255,255,0.07)'; c.lineWidth = 1;
+      for (let y = Math.min(h.y, an.y) - s * 0.1; y < Math.max(h.y, an.y) + s * 0.1; y += s * 0.008) { c.beginPath(); c.moveTo(h.x - s * 0.1, y); c.lineTo(h.x + s * 0.1, y - s * 0.06); c.stroke(); }
+      const fade = c.createRadialGradient(kn.x, kn.y, 0, kn.x, kn.y, s * 0.06); fade.addColorStop(0, 'rgba(255,255,255,0.09)'); fade.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = fade; c.fillRect(kn.x - s * 0.06, kn.y - s * 0.06, s * 0.12, s * 0.12);
+      c.restore();
+    }
+    const out = Math.sign(h.x - (k.lHip.x + k.rHip.x) / 2) || 1;
+    c.strokeStyle = 'rgba(214,140,60,0.45)'; c.lineWidth = 0.8; c.setLineDash([1.5, 2]);
+    c.beginPath(); c.moveTo(h.x + out * s * 0.04, h.y); c.lineTo(kn.x + out * s * 0.03, kn.y); c.lineTo(an.x + out * s * 0.024, an.y - s * 0.01); c.stroke(); c.setLineDash([]);
     shoe(c, an, ft, s);
   }
   // torso: shirt shaped over the shoulders, a little narrower at the waist
@@ -466,8 +545,19 @@ function shapeHits(cir, hz) {
   const pt = (px, py) => { const x = hz.dir * px * s, y = py * s; return { x: hz.x + x * cs - y * sn, y: hz.y + x * sn + y * cs }; };
   return SHAPES[hz.kind].some(([x1, y1, x2, y2, t]) => { const a = pt(x1, y1), b = pt(x2, y2); return distToSegment(cir, a.x, a.y, b.x, b.y) < cir.r + t * s; });
 }
+// A vehicle is judged by its solid parts: low over the hood, bed or trunk, full height only over the cab or
+// roof. So a jump clears the low front before you reach the top and lets you land over the low back.
+function vehicleHits(cir, hz) {
+  const V = VEHICLES[hz.kind], s = charH * (V.size || 1), gy = hz.y + hz.h / 2;
+  return V.boxes.some(([x0, x1, top]) => {
+    const a = hz.x + hz.dir * x0 * s, b = hz.x + hz.dir * x1 * s, lo = Math.min(a, b), hi = Math.max(a, b);
+    const dx = Math.max(lo - cir.x, 0, cir.x - hi), dy = Math.max(gy - top * s - cir.y, 0, cir.y - gy);
+    return dx * dx + dy * dy < cir.r * cir.r;
+  });
+}
 function circleHitsBox(cir, hz) {
   if (HAZARDS[hz.kind].shaped) return shapeHits(cir, hz);
+  if (HAZARDS[hz.kind].vehicle) return vehicleHits(cir, hz);
   const r = HAZARDS[hz.kind].hitR;
   if (r) return Math.hypot(cir.x - hz.x, cir.y - hz.y) < r * charH + cir.r;   // round hit area (a diving plane)
   // A little forgiving at the edges. Things on the ground are judged by their solid middle (a car's
@@ -502,6 +592,7 @@ function renderHearts() { $('hearts').textContent = '♥'.repeat(G.lives) + '♡
 
 function startGame() {
   audio(); resize(); silenceAll();
+  try { preloadVehicles(charH); } catch (e) { console.error(e); }
   stopVillain();
   Object.assign(G, { sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, stats:{ jumps:0, ducks:0, steps:0 },
     phaseStart:performance.now(), lastTick:-1, bannerUntil:0, shake:0, lastSk:null });
@@ -525,6 +616,7 @@ const comboChance = now => clamp((elapsed(now) - 70) / 110, 0, 1) * 0.5;
 function spawn(lane, now, kind = null, aimed = false) {
   if (lane === 'villain') return spawnVillain(now);
   kind = kind || BY_LANE[lane][Math.floor(Math.random() * BY_LANE[lane].length)];
+  if (kind === 'car') kind = VEHICLE_KINDS[Math.floor(Math.random() * VEHICLE_KINDS.length)];   // one of six vehicles
   const d = HAZARDS[kind], s = charH, w = sizeOf(kind).w * s, h = sizeOf(kind).h * s, sp = d.speed * s * speedUp(now) / 1000;
   const hz = { kind, lane, w, h, born: now, dir: 1, hit: false, done: false, spin: 0 };
   if (lane === 'sky' && d.dives) {
@@ -548,7 +640,14 @@ function spawn(lane, now, kind = null, aimed = false) {
     hz.y = -h; hz.vx = 0; hz.vy = FALL_V0 * s; hz.g = fallGravity(kind, now);
   } else {
     hz.dir = Math.random() < 0.5 ? 1 : -1;
-    const lead = sp * 150;                                                        // starts just off screen
+    let lead = sp * 150;                                                          // starts just off screen
+    if (d.vehicle) {
+      // Fast cars start further off screen (you hear the engine first), so there's always at least a second
+      // to react before one reaches the player.
+      const T = (Math.abs((hz.dir > 0 ? -w / 2 - lead : W + w / 2 + lead) - charX)) / sp;
+      if (T < 1000) lead += (1000 - T) * sp;
+      const cols = VEHICLES[kind].colours; hz.colour = cols[Math.floor(Math.random() * cols.length)];
+    }
     hz.x = hz.dir > 0 ? -w / 2 - lead : W + w / 2 + lead;
     hz.y = lane === 'ground' ? groundY - h / 2 : groundY - charH * 0.95;   // flyers come at head height
     hz.vx = hz.dir * sp; hz.vy = 0;
@@ -866,19 +965,19 @@ function updateHazards(now, dt, sk) {
         const r = hz.w * 1.5;
         sfx.boom(); G.shake = 14;
         G.effects.push({ type:'blast', x: hz.x, y: groundY, r, born: now, dur: 700 });
-        G.effects.push({ type:'boom', x: hz.x, y: groundY, r: r * 0.9, born: now, dur: 900 });
+        G.effects.push({ type:'boom', x: hz.x, y: groundY, r: r * 0.9, born: now, dur: 1600 });
         if (blast(hz.x, r)) { hurt(now, hz); continue; }
       } else if (d.dives) {
         // The plane crashes nose first: a fireball, then a burning hunk of molten metal.
         const x = hz.x + hz.dir * Math.cos(hz.angle) * hz.w * 0.4, r = charH * 0.45;
         sfx.boom(); if (audio()) fire(actx); G.shake = 16;
-        G.effects.push({ type:'boom', x, y: groundY, r, born: now, dur: 900, text:'CRASH!' });
+        G.effects.push({ type:'boom', x, y: groundY, r, born: now, dur: 1600 });
         G.effects.push({ type:'wreck', x, y: groundY, dir: hz.dir, born: now, dur: 4200 });
         if (blast(x, r)) { hurt(now, hz); continue; }
       } else {
         sfx.thud(); G.shake = hz.kind === 'elephant' ? 28 : 8;
         if (hz.kind === 'elephant') setTimeout(sfx.thud, 90);
-        G.effects.push({ type:'dust', x: hz.x, y: groundY, born: now, w: hz.w, dur: 900 });
+        G.effects.push({ type:'dust', x: hz.x, y: groundY, born: now, w: hz.w, dur: 1400 });
         G.effects.push({ type:'landed', hz:{ ...hz, done:false, flying:false, y: groundY - hz.h / 2, spin: 0, spinV: 0 }, born: now, dur: 700 });
       }
       dodged(now, hz);
@@ -942,10 +1041,14 @@ function drawEffects(c, now) {
     if (e.type === 'blast') {                                            // the bomb's blast filling its zone
       const q = (now - e.born) / e.dur, ring = Math.min(1, q * 4);
       c.save();
-      c.fillStyle = `rgba(255,150,40,${0.55 * (1 - q)})`;
-      c.beginPath(); c.arc(e.x, e.y, e.r, Math.PI, 0); c.closePath(); c.fill();
-      c.strokeStyle = `rgba(255,255,255,${0.9 * (1 - q)})`; c.lineWidth = 6 * (1 - q) + 1;
+      const heat = c.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.r);               // a flash of heat over the blast area
+      heat.addColorStop(0, `rgba(255,220,150,${0.5 * (1 - q)})`); heat.addColorStop(0.7, `rgba(255,140,40,${0.3 * (1 - q)})`); heat.addColorStop(1, 'rgba(255,120,30,0)');
+      c.fillStyle = heat; c.beginPath(); c.arc(e.x, e.y, e.r, Math.PI, 0); c.closePath(); c.fill();
+      c.strokeStyle = `rgba(255,255,255,${0.5 * (1 - q)})`; c.lineWidth = 3 * (1 - q) + 1;             // the shock wave
       c.beginPath(); c.arc(e.x, e.y, e.r * ring, Math.PI, 0); c.stroke();
+      const sc = c.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.r * 0.6);                      // scorched ground
+      sc.addColorStop(0, `rgba(30,22,15,${0.6 * (1 - q * 0.5)})`); sc.addColorStop(1, 'rgba(30,22,15,0)');
+      c.fillStyle = sc; c.beginPath(); c.ellipse(e.x, e.y + 2, e.r * 0.6, charH * 0.03, 0, 0, 7); c.fill();
       c.restore(); continue;
     }
     if (e.type === 'wreck') { drawWreck(c, e.x, e.y, charH * HAZARDS.plane.scale, now - e.born, e.dir); continue; }
@@ -954,21 +1057,56 @@ function drawEffects(c, now) {
       c.font = `bold ${H * 0.06}px "Trebuchet MS", sans-serif`;
       c.strokeText(e.text, e.x, e.y - t * 40); c.fillText(e.text, e.x, e.y - t * 40); c.globalAlpha = 1;
     } else if (e.type === 'boom') {
-      const r = (e.r || charH * 0.4) * (0.4 + t * 0.7);           // grows to the full blast area
-      c.globalAlpha = 1 - t;
-      c.fillStyle = '#ff922b'; c.beginPath();
-      for (let i = 0; i < 16; i++) { const a = i / 16 * Math.PI * 2, rr = i % 2 ? r : r * 0.6; c.lineTo(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr); }
-      c.closePath(); c.fill(); c.fillStyle = '#ffe066'; c.beginPath(); c.arc(e.x, e.y, r * 0.45, 0, 7); c.fill();
-      c.fillStyle = '#fff'; c.strokeStyle = OUTLINE; c.lineWidth = 5; c.font = `bold ${H * 0.07}px "Trebuchet MS", sans-serif`; c.textAlign = 'center';
-      c.strokeText(e.text || 'BOOM!', e.x, e.y - r * 0.9); c.fillText(e.text || 'BOOM!', e.x, e.y - r * 0.9);
-      c.globalAlpha = 1;
+      drawFireball(c, e, now);
     } else if (e.type === 'dust') {
-      c.globalAlpha = 1 - t; c.fillStyle = '#ced4da';
-      for (let i = -2; i <= 2; i++) { c.beginPath(); c.arc(e.x + i * e.w * 0.3 * (1 + t), e.y - 8 - t * 20, charH * 0.04 * (1 + t), 0, 7); c.fill(); }
-      c.globalAlpha = 1;
+      drawDust(c, e, now);
     } else if (e.type === 'landed') {                                    // the object rests on the ground, then fades
       c.globalAlpha = clamp((e.dur - (now - e.born)) / 300, 0, 1); drawHazard(c, e.hz, charH, now); c.globalAlpha = 1;
     }
+  }
+}
+
+// An explosion: a white-hot core and boiling orange fireball made of overlapping billows, flying sparks,
+// then thick dark smoke rolling upwards and spreading as it fades.
+function drawFireball(c, e, now) {
+  const age = now - e.born, q = age / e.dur, R = e.r || charH * 0.4;
+  let sd = Math.floor(e.born) % 9973 + 1; const rnd = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+  c.save();
+  for (let i = 0; i < 9; i++) {                                                      // smoke, behind the fire
+    const a = Math.PI * (1.05 + rnd() * 0.9), d = R * (0.2 + rnd() * 0.5), rise = R * (0.3 + rnd() * 0.9) * q;
+    const x = e.x + Math.cos(a) * d * (0.6 + q), y = e.y + Math.sin(a) * d * 0.7 - rise - R * 0.15, r = R * (0.25 + rnd() * 0.2) * (0.6 + q * 1.4);
+    const g = c.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.1, x, y, r);
+    const al = 0.75 * Math.min(1, q * 3) * (1 - q);
+    g.addColorStop(0, `rgba(95,90,88,${al})`); g.addColorStop(0.7, `rgba(45,42,42,${al * 0.9})`); g.addColorStop(1, 'rgba(40,38,38,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+  }
+  const fire = Math.max(0, 1 - q * 1.6);                                            // the fireball burns out quickly
+  if (fire > 0) {
+    for (let i = 0; i < 10; i++) {
+      const a = Math.PI * (1 + rnd()), d = R * rnd() * 0.55 * (0.5 + q), x = e.x + Math.cos(a) * d, y = e.y + Math.sin(a) * d * 0.8 - R * 0.1;
+      const r = R * (0.22 + rnd() * 0.2) * (0.7 + q);
+      const g = c.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(255,250,220,${fire})`); g.addColorStop(0.3, `rgba(255,200,80,${fire})`); g.addColorStop(0.65, `rgba(240,110,20,${fire * 0.9})`); g.addColorStop(1, 'rgba(160,40,10,0)');
+      c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+    }
+    c.strokeStyle = `rgba(255,210,120,${fire})`; c.lineWidth = 1.5;                  // sparks and burning bits
+    for (let i = 0; i < 14; i++) {
+      const a = Math.PI * (1.05 + rnd() * 0.9), sp = R * (0.6 + rnd() * 1.2) * q * 1.6, x = e.x + Math.cos(a) * sp, y = e.y + Math.sin(a) * sp + R * q * q * 0.8;
+      c.beginPath(); c.moveTo(x, y); c.lineTo(x - Math.cos(a) * R * 0.06, y - Math.sin(a) * R * 0.06); c.stroke();
+    }
+  }
+  c.restore();
+}
+// Dust thrown up where something heavy lands: soft brown-grey billows rolling outwards along the ground.
+function drawDust(c, e, now) {
+  const q = (now - e.born) / e.dur;
+  let sd = Math.floor(e.born) % 7919 + 3; const rnd = () => { sd = (sd * 16807) % 2147483647; return sd / 2147483647; };
+  for (let i = 0; i < 12; i++) {
+    const side = i % 2 ? 1 : -1, spread = (e.w * 0.3 + e.w * 0.6 * rnd()) * (0.4 + q), x = e.x + side * spread, y = e.y - charH * (0.02 + rnd() * 0.05) * (0.5 + q * 1.5);
+    const r = charH * (0.04 + rnd() * 0.05) * (0.7 + q * 1.3), al = 0.55 * (1 - q);
+    const g = c.createRadialGradient(x - r * 0.3, y - r * 0.4, r * 0.1, x, y, r);
+    g.addColorStop(0, `rgba(222,208,186,${al})`); g.addColorStop(0.6, `rgba(170,150,125,${al * 0.8})`); g.addColorStop(1, 'rgba(150,130,110,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
   }
 }
 
@@ -995,6 +1133,7 @@ function gameFrame(now, dt) {
     else {
       const st = measureStance();
       // leave room above the head for jumping and below it for ducking
+      if (keyMode) G.phaseStart = Math.min(G.phaseStart, now - 2000);   // no need to calibrate: a short count
       if (st.unit > vw * 0.45) { setBanner('Step back a little'); G.phaseStart = now; }
       else if (st.unit < vw * 0.07) { setBanner('Come a bit closer'); G.phaseStart = now; }
       else if (st.headY < vh * 0.22) { setBanner('Leave room above your head', 'Step back a little, or tilt the phone up'); G.phaseStart = now; }
@@ -1007,7 +1146,7 @@ function gameFrame(now, dt) {
           flash('Go!', '', 1200, now);
         } else {
           Object.assign(B, measureStance());
-          setBanner(String(left), 'Stand still with your arms down');
+          setBanner(String(left), keyMode ? 'Arrows run, Space jumps, Down ducks' : 'Stand still with your arms down');
           if (left !== G.lastTick) { G.lastTick = left; sfx.tick(); }
         }
       }
@@ -1221,7 +1360,8 @@ function renderMenu() {
   list.append(add);
 }
 
-$('playBtn').onclick = () => { audio(); startCamera().then(startGame).catch(e => { startGame(); cameraError(e); }); };
+$('keysBtn').onclick = () => { audio(); setKeyMode(true); startGame(); };
+$('playBtn').onclick = () => { audio(); setKeyMode(false); startCamera().then(startGame).catch(e => { startGame(); cameraError(e); }); };
 $('snapBtn').onclick = () => { audio(); create.countdown = performance.now() + 5000; $('createStatus').textContent = 'Step back into place and hold still…'; };
 $('createCancel').onclick = () => { show('menu'); renderMenu(); };
 $('retakeBtn').onclick = () => { create.shot = null; $('captureStep').hidden = false; $('saveStep').hidden = true; createView.hidden = false; };

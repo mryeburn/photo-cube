@@ -71,23 +71,55 @@ function ridge(c, W, baseY, amp, rough, step, colour, fillTo) {
       const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
       next.push([(x0 + x1) / 2, Math.min(baseY + amp * 0.2, (y0 + y1) / 2 + (rand() - 0.55) * spread)], pts[i]);
     }
-    pts = next; spread *= 0.55;
+    pts = next; spread *= 0.62;                                  // (higher = more jagged peaks)
   }
   c.beginPath(); c.moveTo(0, fillTo);
   for (const [x, y] of pts) c.lineTo(x, y);
   c.lineTo(W, fillTo); c.closePath(); c.fillStyle = colour; c.fill();
+  return pts;
+}
+// Rock: the broad faces turned to the sun (upper right) are lit, those turned away are in shade, fading
+// down the mountainside.
+function rockFaces(c, pts, H, light, dark, depth) {
+  for (let i = 1; i < pts.length; i++) {
+    const a0 = pts[Math.max(0, i - 4)], a1 = pts[Math.min(pts.length - 1, i + 3)];
+    const slope = (a1[1] - a0[1]) / ((a1[0] - a0[0]) || 1);                         // the slope of the whole face here
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    const a = Math.min(0.3, Math.abs(slope) * 0.7), col = slope > 0 ? light : dark, d = H * depth;
+    const g = c.createLinearGradient(0, Math.min(y0, y1), 0, Math.max(y0, y1) + d);
+    g.addColorStop(0, `rgba(${col},${a})`); g.addColorStop(1, `rgba(${col},0)`);
+    c.fillStyle = g; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1 + 0.5, y1); c.lineTo(x1 + 0.5, y1 + d); c.lineTo(x0, y0 + d); c.closePath(); c.fill();
+  }
+}
+// Snow on the high peaks: a ragged white cap that reaches further down in the gullies.
+function snowCaps(c, pts, snowLine, H) {
+  c.fillStyle = 'rgba(250,252,255,0.92)';
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    if (Math.min(y0, y1) > snowLine) continue;
+    const d0 = Math.max(0, snowLine - y0) * (0.5 + rand() * 0.6), d1 = Math.max(0, snowLine - y1) * (0.5 + rand() * 0.6);
+    c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.lineTo(x1, y1 + d1 * 0.6 + rand() * H * 0.01); c.lineTo(x0, y0 + d0 * 0.6); c.closePath(); c.fill();
+  }
+}
+// A pine tree: a dark trunk and layered, drooping tiers of needles, lit a little on the sunny side.
+function pine(c, x, y, h, col, lit) {
+  c.fillStyle = '#3b2a1c'; c.fillRect(x - h * 0.03, y - h * 0.12, h * 0.06, h * 0.12);
+  for (let k = 0; k < 4; k++) {
+    const top = y - h * (0.28 + k * 0.22), bot = y - h * (0.08 + k * 0.2), w = h * (0.32 - k * 0.065);
+    c.fillStyle = col; c.beginPath(); c.moveTo(x, top - h * 0.08); c.lineTo(x + w, bot); c.quadraticCurveTo(x, bot - h * 0.05, x - w, bot); c.closePath(); c.fill();
+    c.fillStyle = lit; c.beginPath(); c.moveTo(x, top - h * 0.08); c.lineTo(x + w, bot); c.quadraticCurveTo(x + w * 0.4, bot - h * 0.04, x + w * 0.1, bot - h * 0.03); c.closePath(); c.fill();
+  }
 }
 
 function paintLand(W, H, gY, dpr) {
   const cv = makeCanvas(W * dpr, H * dpr), c = cv.getContext('2d'); c.scale(dpr, dpr);
   seed(4242);
-  // distant mountains, hazy blue, with snowy tops on the far range
-  ridge(c, W, gY - H * 0.22, H * 0.28, 0, W / 120, '#8fa9c9', gY);
-  c.save(); c.globalCompositeOperation = 'source-atop';
-  const snow = c.createLinearGradient(0, gY - H * 0.46, 0, gY - H * 0.33);
-  snow.addColorStop(0, 'rgba(255,255,255,0.85)'); snow.addColorStop(1, 'rgba(255,255,255,0)');
-  c.fillStyle = snow; c.fillRect(0, 0, W, gY); c.restore();
-  ridge(c, W, gY - H * 0.15, H * 0.16, 0, W / 120, '#7a96b8', gY);
+  // distant mountains, hazy blue: rocky faces in sun and shade, ragged snow on the high peaks
+  const far = ridge(c, W, gY - H * 0.22, H * 0.28, 0, W / 120, '#8fa9c9', gY);
+  rockFaces(c, far, H, '235,242,250', '70,90,120', 0.08);
+  snowCaps(c, far, gY - H * 0.36, H);
+  const near = ridge(c, W, gY - H * 0.15, H * 0.16, 0, W / 120, '#7a96b8', gY);
+  rockFaces(c, near, H, '210,225,240', '55,75,105', 0.06);
   // atmospheric haze over the mountains
   const haze = c.createLinearGradient(0, gY - H * 0.3, 0, gY);
   haze.addColorStop(0, 'rgba(227,238,246,0)'); haze.addColorStop(1, 'rgba(227,238,246,0.55)');
@@ -102,10 +134,23 @@ function paintLand(W, H, gY, dpr) {
     }
     c.lineTo(W, gY); c.closePath(); c.fillStyle = col; c.fill();
     for (const [x, y] of pts) {                                                       // tree clumps along the crest
-      if (rand() < 0.45) continue;
-      const tr = H * (0.008 + rand() * 0.012);
-      for (let k = 0; k < 3; k++) { c.fillStyle = k === 2 ? 'rgba(255,255,255,0.08)' : treeCol; c.beginPath(); c.arc(x + (k - 1) * tr * 0.9, y - tr * (k === 1 ? 1.1 : 0.7), tr, 0, 7); c.fill(); }
+      if (rand() < 0.15) continue;
+      const far = base < gY - H * 0.07;                                               // further hills: smaller, hazier trees
+      for (let n = 0; n < 3; n++) {
+        const th = H * (far ? 0.022 + rand() * 0.014 : 0.035 + rand() * 0.02);
+        pine(c, x + (rand() - 0.5) * 20, y + rand() * H * (far ? 0.015 : 0.03) + th * 0.1, th, treeCol, far ? 'rgba(170,200,150,0.25)' : 'rgba(150,190,110,0.3)');
+      }
     }
+  }
+  // a lake in the valley, reflecting the sky, with the dark reflection of the far shore and glints of light
+  {
+    const lx = W * 0.24, ly = gY - H * 0.02, rx = W * 0.17, ry = H * 0.016;
+    c.fillStyle = '#c9b48a'; c.beginPath(); c.ellipse(lx, ly + 1, rx + 4, ry + 2, 0, 0, 7); c.fill();       // sandy shore
+    const wg = c.createLinearGradient(0, ly - ry, 0, ly + ry); wg.addColorStop(0, '#2f5a3a'); wg.addColorStop(0.25, '#5f8fb8'); wg.addColorStop(0.7, '#9cc3e4'); wg.addColorStop(1, '#6f9cc7');
+    c.fillStyle = wg; c.beginPath(); c.ellipse(lx, ly, rx, ry, 0, 0, 7); c.fill();
+    c.save(); c.beginPath(); c.ellipse(lx, ly, rx, ry, 0, 0, 7); c.clip();
+    for (let i = 0; i < 60; i++) { c.strokeStyle = `rgba(255,255,255,${0.15 + rand() * 0.35})`; c.lineWidth = 1; const x = lx + (rand() - 0.5) * rx * 1.8, y = ly - ry * 0.3 + rand() * ry * 1.2, l = 3 + rand() * 12; c.beginPath(); c.moveTo(x, y); c.lineTo(x + l, y); c.stroke(); }
+    c.restore();
   }
   // the field: grass that is brighter in the distance and richer close up, with texture
   const grass = c.createLinearGradient(0, gY - 4, 0, H);
@@ -122,6 +167,24 @@ function paintLand(W, H, gY, dpr) {
   }
   // a soft line where the field meets the hills
   c.fillStyle = 'rgba(30,70,20,0.25)'; c.fillRect(0, gY - 2, W, 3);
+  // a dirt country road along the field, which the cars, the pig and the tire travel on: packed earth, two
+  // wheel ruts with a grassy hump between, pebbles, and grass spilling over the edges
+  const rt = gY - H * 0.012, rb = gY + H * 0.045;
+  const road = c.createLinearGradient(0, rt, 0, rb); road.addColorStop(0, '#b9a07a'); road.addColorStop(0.5, '#a88d66'); road.addColorStop(1, '#94795a');
+  c.fillStyle = road; c.fillRect(0, rt, W, rb - rt);
+  for (const [y, w] of [[rt + (rb - rt) * 0.3, (rb - rt) * 0.16], [rt + (rb - rt) * 0.75, (rb - rt) * 0.2]]) {
+    const rg = c.createLinearGradient(0, y - w, 0, y + w); rg.addColorStop(0, 'rgba(90,68,45,0)'); rg.addColorStop(0.5, 'rgba(90,68,45,0.35)'); rg.addColorStop(1, 'rgba(90,68,45,0)');
+    c.fillStyle = rg; c.fillRect(0, y - w, W, w * 2);
+  }
+  for (let i = 0; i < W * 0.6; i++) {                                                 // pebbles and grit
+    const x = rand() * W, y = rt + rand() * (rb - rt), r = 0.5 + rand() * 1.6;
+    c.fillStyle = rand() < 0.5 ? 'rgba(80,62,42,0.5)' : 'rgba(235,220,195,0.55)'; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
+  }
+  for (let i = 0; i < W * 0.8; i++) {                                                 // the grassy hump and the verges
+    const edge = rand(), y = edge < 0.3 ? rt + (rb - rt) * 0.53 : edge < 0.65 ? rt + rand() * 3 : rb - rand() * 3, x = rand() * W;
+    c.strokeStyle = rand() < 0.5 ? 'rgba(70,120,40,0.7)' : 'rgba(120,165,70,0.6)'; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(x, y + 2); c.lineTo(x + (rand() - 0.5) * 3, y - 2 - rand() * 4); c.stroke();
+  }
   return cv;
 }
 
@@ -144,4 +207,30 @@ export function drawScenery(c, W, H, gY, now) {
     c.drawImage(cl.img, x - cl.w * PAD, cl.y * H - cl.w * PAD, cl.w * (1 + 2 * PAD), cl.h + cl.w * 2 * PAD);
   }
   c.drawImage(cache.land, 0, 0, W, H);
+  // cloud shadows drifting over the hills and the field
+  if (!cache.shadow) {
+    const sc = makeCanvas(256, 64), g = sc.getContext('2d'), rg = g.createRadialGradient(128, 32, 4, 128, 32, 128);
+    rg.addColorStop(0, 'rgba(20,40,60,1)'); rg.addColorStop(1, 'rgba(20,40,60,0)'); g.setTransform(1, 0, 0, 0.25, 0, 24); g.fillStyle = rg; g.fillRect(0, 0, 256, 256);
+    cache.shadow = sc;
+  }
+  c.save(); c.beginPath(); c.rect(0, gY - H * 0.13, W, H); c.clip(); c.globalAlpha = 0.16;
+  for (const cl of cache.clouds.slice(0, 3)) {
+    const span = W + cl.w * 3, x = ((cl.x * span + now / 1000 * cl.speed * W * 3) % span) - cl.w * 1.5;
+    c.drawImage(cache.shadow, x - cl.w * 0.4, gY - H * 0.1 + cl.y * H * 0.3, cl.w * 1.8, H * 0.09);
+  }
+  c.restore();
+  // a few birds far away, gliding and flapping
+  c.strokeStyle = 'rgba(40,45,55,0.65)'; c.lineWidth = 1.3; c.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const x = ((now / 1000 * W * (0.012 + i * 0.004) + i * W * 0.37) % (W * 1.2)) - W * 0.1, y = H * (0.18 + i * 0.07) + Math.sin(now / 1500 + i) * H * 0.01;
+    const f = Math.sin(now / (160 + i * 30) + i) * 0.5 + 0.5, sz = H * (0.008 + (i % 2) * 0.003);
+    c.beginPath(); c.moveTo(x - sz, y - sz * (0.2 + f * 0.6)); c.quadraticCurveTo(x - sz * 0.4, y - sz * 0.3, x, y); c.quadraticCurveTo(x + sz * 0.4, y - sz * 0.3, x + sz, y - sz * (0.2 + f * 0.6)); c.stroke();
+  }
+  // tall grass in the foreground, swaying in the wind
+  if (!cache.blades) { seed(555); cache.blades = Array.from({ length: Math.round(W / 9) }, () => ({ x: rand() * W, h: H * (0.03 + rand() * 0.05), ph: rand() * 6, dark: rand() < 0.5 })); }
+  for (const b of cache.blades) {
+    const sway = Math.sin(now / 900 + b.ph + b.x / W * 4) * b.h * 0.25;
+    c.strokeStyle = b.dark ? 'rgba(46,92,30,0.9)' : 'rgba(96,150,58,0.85)'; c.lineWidth = 2;
+    c.beginPath(); c.moveTo(b.x, H + 2); c.quadraticCurveTo(b.x + sway * 0.3, H - b.h * 0.5, b.x + sway, H - b.h); c.stroke();
+  }
 }

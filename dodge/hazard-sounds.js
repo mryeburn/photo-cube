@@ -37,7 +37,13 @@ const SOUNDS = {
   anvil:    { base:0.22, whistle:true },
   elephant: { base:0.22, whistle:true, trumpet:true },
   plane:    { base:0.22, whistle:true, engine:[220, 'sawtooth', 900] },
-  car:      { base:1.0,  revs:true, floor:0.3 },                        // loud, revving engine
+  // the vehicles: the same real engine recording, tuned for each (a higher scream, a deeper rumble...)
+  porsche:  { base:1.0,  revs:true, floor:0.3, pitch:1.4 },
+  mustang:  { base:1.1,  revs:true, floor:0.3, pitch:0.78, rumble:180 },
+  miata:    { base:0.9,  revs:true, floor:0.3, pitch:1.2 },
+  jeep:     { base:1.0,  revs:true, floor:0.3, pitch:0.9 },
+  pickup:   { base:1.0,  revs:true, floor:0.3, pitch:0.68, also:[0.19, 'clank'] },   // rough, with a rattle
+  beetle:   { base:0.9,  revs:true, floor:0.3, pitch:1.45, every:[0.085, 'putt'], steady:true },   // buzzy put-put
   pig:      { base:0.45, every:[0.75, 'squeal'], charge:true },
   tire:     { base:1.0, floor:0.25 },                                  // bounces: see bounce()
   eagle:    { base:0.35, every:[0.22, 'flap'], screechAtStart:true, whoosh:true },   // screeches as it starts its dive
@@ -86,6 +92,7 @@ export function createVoice(a, kind) {
     clank: () => { ping('triangle', 1300 + Math.random() * 500, 900, 0.08, 0.6); },
     screech: () => ping('sine', 2400, 1500, 0.6, 0.6),
     whup: () => burst('bandpass', 850, 0.13, 1.1),               // a spinning blade cutting the air
+    putt: () => burst('lowpass', 380, 0.05, 1.3),                 // an old air-cooled engine's put-put
     whirr: () => burst('bandpass', 560 + Math.random() * 120, 0.06, 1.2),   // each turn of a boomerang
     squeal: () => squeal(a, out, 0.45 + Math.random() * 0.25, 0.9),
   };
@@ -106,8 +113,8 @@ export function createVoice(a, kind) {
   // The car roars in with a rev at full volume, then its engine keeps revving through the gears.
   let revRate = null;
   if (cfg.revs) {
-    setTimeout(() => vroom(a, pan || a.destination), 30);
-    const eng = loopedSample(a, 'engine', out, 0.8);
+    setTimeout(() => vroom(a, pan || a.destination, cfg.pitch || 1), 30);
+    const eng = loopedSample(a, 'engine', out, 0.8 * (cfg.pitch || 1));
     if (eng) { nodes.push(eng); revRate = eng.playbackRate; }
   }
   const born = performance.now();
@@ -138,7 +145,7 @@ export function createVoice(a, kind) {
         // (the frame's clock can be a fraction of a millisecond behind `born`, so never let the age go negative)
         const gear = 0.9 - 0.3 * prox, ph = (Math.max(0, now - born) / 1000 % gear) / gear;
         const rate = 0.9 + (0.6 + 0.5 * prox) * Math.pow(ph, 0.7);
-        revRate.setTargetAtTime(rate, t(), ph < 0.06 ? 0.05 : 0.03);
+        revRate.setTargetAtTime(rate * (cfg.pitch || 1), t(), ph < 0.06 ? 0.05 : 0.03);
       }
       if (engine) {
         let f = cfg.engine[0] * (1 + 0.6 * prox);
@@ -267,10 +274,10 @@ export function fire(a, secs = 3.5) {
 }
 
 // A full-volume "VROOM": the recording of a real car accelerating hard.
-function vroom(a, dest) {
+function vroom(a, dest, pitch = 1) {
   if (!samples.rev) return;
   const at = a.currentTime, dur = Math.min(2.2, samples.rev.duration), src = a.createBufferSource(), g = a.createGain();
-  src.buffer = samples.rev;
+  src.buffer = samples.rev; src.playbackRate.value = pitch;
   g.gain.setValueAtTime(1, at); g.gain.setValueAtTime(1, at + dur - 0.4); g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
   src.connect(g).connect(dest); src.start(at); src.stop(at + dur + 0.05);
 }
