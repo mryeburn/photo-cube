@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '3.4';
+const VERSION = '3.5';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -224,11 +224,13 @@ function updateMotion(now) {
     const j = motion.jump;
     // Height is measured while rising (first 0.3 s); the length of the jump never changes, so the
     // fall takes exactly as long as the rise.
-    if (now - j.t0 < 300) j.peak = Math.max(j.peak, Math.min(motion.up * JUMP_GAIN, PEAK_MAX) * charH * (j.boost ? 2 : 1));   // super jump: twice as high
-    const u = (now - j.t0) / (AIR_TIME * 1000 * (j.boost ? 1.41 : 1));                                                       // (and a little longer in the air)
+    if (now - j.t0 < 300) j.peak = Math.max(j.peak, Math.min(motion.up * JUMP_GAIN, PEAK_MAX) * charH * (j.boost ? 2.6 : 1));   // super jump: 2.6 times as high
+    const u = (now - j.t0) / (AIR_TIME * 1000 * (j.boost ? 1.61 : 1));                                                       // (and longer in the air)
+    motion.flip = j.boost && u < 1 ? u : 0;                                // super jumps are somersaults
     if (u >= 1) { motion.jump = null; motion.lift = 0; }
     else motion.lift = 4 * j.peak * u * (1 - u);
   }
+  if (!motion.jump) motion.flip = 0;
   if (!motion.jump && motion.up < 0.015) motion.canJump = true;      // land properly before the next jump
   motion.duck = clamp(-motion.up * DUCK_GAIN, 0, 0.45);          // share of its height the character's head drops
 }
@@ -615,6 +617,10 @@ function vehicleHits(cir, hz) {
 function circleHitsBox(cir, hz) {
   if (HAZARDS[hz.kind].shaped) return shapeHits(cir, hz);
   if (HAZARDS[hz.kind].vehicle) return vehicleHits(cir, hz);
+  if (hz.kind === 'frog') {
+    const foot = hz.y + hz.h / 2, x0 = hz.x - hz.dir * charH * 0.25, x1 = hz.x + hz.dir * charH * 0.28, lo = Math.min(x0, x1), hi = Math.max(x0, x1);
+    const dx = Math.max(lo - cir.x, 0, cir.x - hi), dy = Math.max(foot - charH * 0.5 - cir.y, 0, cir.y - foot); return dx * dx + dy * dy < cir.r * cir.r;   // its body (a jump clears it sitting)
+  }
   if (hz.lane === 'charge') {                                          // the elephant's body: from its belly up (lying flat is under it)
     const dx = Math.max(Math.abs(cir.x - hz.x) - hz.w * 0.42, 0), top = groundY - charH * 1.25, bot = groundY - charH * 0.38;
     const dy = Math.max(top - cir.y, 0, cir.y - bot); return dx * dx + dy * dy < cir.r * cir.r;
@@ -665,7 +671,7 @@ function startGame() {
   audio(); resize(); silenceAll();
   try { preloadVehicles(charH); } catch (e) { console.error(e); }
   stopVillain();
-  Object.assign(G, { seen:{}, quake:null, stagger:null, sawEle:false, knock:null, carry:null, flat:false, lay:0, laySide:1, boostUntil:0, nextHealth:performance.now() + 60000, nextEnergy:performance.now() + 60000 + 30000 + Math.random() * 60000, sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, headSplat:0, stats:{ jumps:0, ducks:0, steps:0 },
+  Object.assign(G, { squish:null, seen:{}, quake:null, stagger:null, sawEle:false, knock:null, carry:null, flat:false, lay:0, laySide:1, boostUntil:0, nextHealth:performance.now() + 60000, nextEnergy:performance.now() + 60000 + 30000 + Math.random() * 60000, sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, headSplat:0, stats:{ jumps:0, ducks:0, steps:0 },
     phaseStart:performance.now(), lastTick:-1, bannerUntil:0, shake:0, lastSk:null });
   motion.airborne = false; motion.ducking = false;
   $('scoreNum').textContent = '0'; $('timeNum').textContent = '0:00'; renderHearts();
@@ -715,6 +721,10 @@ function spawn(lane, now, kind = null, aimed = false, dir = null) {
   } else if (lane === 'pack') {
     // A health or energy pack drifts down under a parachute somewhere across the screen (not aimed).
     hz.x = W * (0.12 + Math.random() * 0.76); hz.y = -h; hz.vx = 0; hz.vy = charH * 0.5 / 1000; hz.sway = Math.random() * 6;
+  } else if (lane === 'bounce' && d.frog) {
+    // A big frog comes hopping in from one side, in bursts of 1 to 3 hops with pauses in between (see updateFrog).
+    hz.dir = Math.random() < 0.5 ? 1 : -1; hz.x = hz.dir > 0 ? -w * 0.45 : W + w * 0.45; hz.y = groundY - h / 2;
+    hz.vx = 0; hz.vy = 0; hz.g = 0; hz.state = 'sit'; hz.sitUntil = now; hz.hopsLeft = 1 + Math.floor(Math.random() * 3); hz.air = 0; hz.tongue = -1; hz.puff = 0; hz.tongues = [];
   } else if (lane === 'bounce') {
     // A kid on a pogo stick bounces straight across the screen in 4 or 5 hops, his feet rising to just over the
     // man's head. He doesn't aim: watch his hops and step out of the way.
@@ -898,22 +908,22 @@ function spawnCombo(now) {
 function silence(hz) { if (hz.voice) { hz.voice.stop(); hz.voice = null; } }
 function silenceAll() { G.hazards.forEach(silence); }
 
-// The order things first appear in: something new every 20 seconds. Cars and arrows, the hardest to dodge,
+// The order things first appear in: something new every 15 seconds. Cars and arrows, the hardest to dodge,
 // not before 3 minutes.
-const UNLOCK = [['tire', 0], ['pig', 20], ['anvil', 40], ['weight', 60], ['tomahawk', 80], ['boomerang', 100], ['bomb', 120], ['eagle', 140],
-  ['missile', 160], ['car', 180], ['arrow', 200], ['pogo', 220], ['plane', 240], ['elephant', 260], ['ufo', 280]];
+const UNLOCK = [['tire', 0], ['pig', 15], ['anvil', 30], ['weight', 45], ['tomahawk', 60], ['boomerang', 75], ['bomb', 90], ['eagle', 105],
+  ['missile', 120], ['frog', 135], ['plane', 150], ['elephant', 165], ['car', 180], ['arrow', 195], ['ufo', 210]];
 const LANE_OF = kind => kind === 'car' ? 'ground' : HAZARDS[kind].lane;
 const unlocked = t => UNLOCK.filter(([, at]) => t >= at).map(([k]) => k);
 const TEACH = { tire:['Jump!', 'Jump over the tire as it reaches you'], pig:['Pigs!', 'Jump over them'], anvil:['Anvils!', 'Step aside from where it will land'],
   weight:['50 tons!', 'Step well clear of it'], tomahawk:['Tomahawk!', 'Duck under it'], boomerang:['Boomerang!', 'Duck... and watch how it comes back'],
   bomb:['Bombs!', 'Get well away from where it lands'], eagle:['Eagle!', 'Duck under its talons, jump when it skims low'], missile:['Missile!', 'Duck if it comes high, jump if it comes low'],
-  car:['Cars!', 'Listen for the engine, then jump'], arrow:['Arrows!', 'Listen for the twang, then duck'], pogo:['Pogo kid!', 'Watch his hops and step aside from where he will land'],
+  car:['Cars!', 'Listen for the engine, then jump'], arrow:['Arrows!', 'Listen for the twang, then duck'], frog:['Frog!', 'Watch its hops and step aside from where it will land'],
   plane:['Plane!', 'Get clear of where it will crash'], elephant:['Elephant!', 'Get down flat when it charges (carefully!)'], ufo:['UFO!', 'When it settles over you and glows brightest, step aside'] };
 function nextKind() {
   const t = elapsed(performance.now()), open = unlocked(t), ufos = G.hazards.filter(h => h.lane === 'ufo').length;
-  const allowed = open.filter(k => !(k === 'ufo' && ufos >= (t > 360 ? 2 : 1)) && !(k === 'pogo' && G.hazards.some(h => h.lane === 'bounce')) && !(k === 'elephant' && G.hazards.some(h => h.lane === 'charge')));
+  const allowed = open.filter(k => !(k === 'ufo' && ufos >= (t > 360 ? 2 : 1)) && !(k === 'frog' && G.hazards.some(h => h.lane === 'bounce')) && !(k === 'elephant' && G.hazards.some(h => h.lane === 'charge')));
   const newest = open[open.length - 1];                              // the newest arrival comes up more often, so the player meets it
-  const weights = allowed.map(k => k === newest ? 3 : (k === 'ufo' || k === 'elephant' || k === 'pogo') ? 0.6 : 1);
+  const weights = allowed.map(k => k === newest ? 3 : (k === 'ufo' || k === 'elephant' || k === 'frog') ? 0.6 : 1);
   let r = Math.random() * weights.reduce((a, b) => a + b, 0);
   for (let i = 0; i < allowed.length; i++) { r -= weights[i]; if (r <= 0) return allowed[i]; }
   return allowed[0];
@@ -926,7 +936,10 @@ const TEACH_TEXT = { charge:['Elephant!', 'Get down flat when it charges (carefu
 function hurt(now, hz) {
   if (now < G.safeUntil || G.state !== 'play') return;
   G.lives--; renderHearts(); G.safeUntil = now + SAFE_MS; G.shake = 12; G.hurtAt = now;
-  G.knock = { at: now, side: Math.sign(charX - (hz.x ?? charX)) || 1 };   // knocked off his feet, away from what hit him
+  if (hz.kind === 'anvil') {                                            // squashed flat like an accordion, then he pops back up
+    G.squish = { at: now, x: charX }; hz.done = true; G.effects.push({ type:'anvilsit', born: now, dur: 1000 });
+    noise(0.18, 0.5, 260); tone(700, 0.45, 'sawtooth', 0.07, 0.05, 160); tone(180, 0.35, 'sine', 0.25, 0.95, 620);   // crunch, wheeze... boing!
+  } else G.knock = { at: now, side: Math.sign(charX - (hz.x ?? charX)) || 1 };   // knocked off his feet, away from what hit him
   G.nextHealth = Math.max(G.nextHealth || 0, now + 5000 + Math.random() * 20000);
   if (hz.kind === 'poop') { hz.done = true; G.headSplat = now + 4000; }   // splat! on his head
   else if (['sky', 'ground', 'air', 'bounce'].includes(hz.lane)) { hz.hit = true; hz.vy = -0.0008 * charH * 1000 / 1000 * 0.9; hz.vx = -hz.vx * 0.4; hz.flying = true; }
@@ -1107,7 +1120,8 @@ function updateHazards(now, dt, sk) {
     }
     if (hz.lane === 'ufo') { updateUfo(hz, now, circles, dt); continue; }
     if (hz.lane === 'charge') { updateElephant(hz, now, dt); continue; }
-    if (hz.lane === 'bounce') {
+    if (hz.kind === 'frog') updateFrog(hz, now);
+    if (hz.kind === 'pogo') {
       const foot = hz.y + POGO_FOOT * charH;
       hz.comp = clamp(1 - (groundY - foot) / (charH * 0.06), 0, 1);       // the spring squashes as it touches down
       if (foot >= groundY && hz.vy > 0) {
@@ -1277,6 +1291,75 @@ function collectPack(hz, now) {
   else { G.boostUntil = now + BOOST_MS; G.effects.push({ type:'text', text:'⚡ Super jump!', x: clamp(hz.x, 90, W - 90), y: hz.y, born: now, color:'#ffd43b' }); }
   tone(880, 0.12, 'sine', 0.2); tone(1320, 0.14, 'sine', 0.2, 0.09); tone(1760, 0.2, 'sine', 0.18, 0.18);
 }
+// How the man's whole body is moved for drawing and for hits alike: knocked down or lying flat (turned onto
+// the ground), somersaulting in a super jump, or squashed by an anvil. A list of canvas-style operations.
+function squishAmount(now) {
+  if (!G.squish) return 0;
+  const t = now - G.squish.at;
+  if (t < 120) return t / 120;                                           // crushed...
+  if (t < 900) return 1;
+  const p = Math.min(1, (t - 900) / 450); return (1 - p) - 0.35 * Math.sin(p * Math.PI * 2) * (1 - p);   // ...then springs back (wobbling)
+}
+function manOps(k, now) {
+  const ops = [];
+  if (G.lay > 0.01) { const px = k.hip.x, py = groundY; ops.push(['t', px, py - charH * 0.07 * Math.sin(G.lay)], ['r', G.lay * G.laySide], ['t', -px, -py]); }
+  if (motion.flip > 0) {                                                 // a full forward roll in the air
+    const e = motion.flip < 0.5 ? 2 * motion.flip * motion.flip : 1 - 2 * (1 - motion.flip) * (1 - motion.flip), cx = k.hip.x, cy = groundY - motion.lift - charH * 0.45;
+    const dir = Math.sign((motion.jump && motion.jump.vx) || 1);
+    ops.push(['t', cx, cy], ['r', dir * e * Math.PI * 2], ['t', -cx, -cy]);
+  }
+  const sq = squishAmount(now);
+  if (sq) { const px = k.hip.x; ops.push(['t', px, groundY], ['s', 1 + 0.3 * sq, 1 - 0.65 * sq], ['t', -px, -groundY]); }
+  return ops;
+}
+function applyOps(c, ops) { for (const [o, a, b] of ops) { if (o === 't') c.translate(a, b); else if (o === 'r') c.rotate(a); else c.scale(a, b); } }
+function txK(k, ops) {
+  if (!ops.length) return k;
+  const map = p => { let x = p.x, y = p.y; for (let i = ops.length - 1; i >= 0; i--) { const [o, a, b] = ops[i];
+    if (o === 't') { x += a; y += b; } else if (o === 'r') { const cs = Math.cos(a), sn = Math.sin(a); [x, y] = [x * cs - y * sn, x * sn + y * cs]; } else { x *= a; y *= b; } } return { x, y }; };
+  const out = {}, sq = squishAmount(performance.now());
+  for (const [key, p] of Object.entries(k)) {
+    if (!p || typeof p !== 'object' || p.x === undefined) { out[key] = p; continue; }
+    out[key] = { ...p, ...map(p) };
+    if (key === 'head') out[key].r = p.r * (1 - 0.5 * sq);
+  }
+  return out;
+}
+// The frog: hops in bursts of 1 to 3 (each a different length and height), then sits for 1 to 4 seconds, croaking
+// and flicking its tongue, then hops on. It never sets off from right beside the player in the way it is going, and
+// when the man is in its path it sometimes leapfrogs clean over him.
+const FROG_G = 9;                                                        // its gravity, character heights per second²
+function updateFrog(hz, now) {
+  const foot = hz.y + hz.h / 2;
+  if (hz.state === 'hop') {
+    hz.air = clamp((groundY - foot) / (charH * 0.25), 0, 1);
+    if (foot >= groundY && hz.vy > 0) {                                   // lands
+      hz.y = groundY - hz.h / 2; hz.vx = 0; hz.vy = 0; hz.g = 0; hz.air = 0; hz.state = 'sit'; hz.landAt = now;
+      if (hz.voice && hz.voice.play) { try { hz.voice.play('frogThump'); } catch (e) {} }
+      G.effects.push({ type:'dust', x: hz.x, y: groundY, born: now, w: charH * 0.4, dur: 700 });
+      if (--hz.hopsLeft > 0) hz.sitUntil = now + 200 + Math.random() * 150;   // a quick crouch, then the next hop
+      else {
+        const sit = 1000 + Math.random() * 3000; hz.sitUntil = now + sit; hz.hopsLeft = 1 + Math.floor(Math.random() * 3);
+        hz.tongues = [now + 300 + Math.random() * 400]; if (sit > 2200) hz.tongues.push(now + 1400 + Math.random() * (sit - 1800));
+        hz.croakAt = now + 150 + Math.random() * 300; hz.croaked = false;
+      }
+    }
+    return;
+  }
+  // sitting: croak (throat puffing), flick the tongue
+  if (hz.croakAt && !hz.croaked && now >= hz.croakAt) { hz.croaked = true; if (hz.voice && hz.voice.play) { try { hz.voice.play('croak'); } catch (e) {} } }
+  hz.puff = hz.croakAt && now >= hz.croakAt && now < hz.croakAt + 600 ? Math.sin((now - hz.croakAt) / 600 * Math.PI) : 0;
+  hz.tongue = -1; for (const tf of hz.tongues) if (now >= tf && now < tf + 330) hz.tongue = (now - tf) / 330;
+  if (now < hz.sitUntil) return;
+  const ahead = (charX - hz.x) * hz.dir;
+  if (ahead > 0 && ahead < charH * 0.9 && now < hz.sitUntil + 3000) return;   // the player is right in front: give them a moment
+  let A = charH * (1.15 + Math.random() * 0.4), L = charH * (0.8 + Math.random() * 1.0);   // height (clears the man's head mid-hop), length
+  if (ahead >= charH * 0.9 && ahead <= charH * 1.6 && Math.random() < 0.5) { L = 2 * ahead; A = charH * 1.4; }   // sometimes it leapfrogs right over the man
+  const g = FROG_G * charH / 1e6;
+  const T = 2 * Math.sqrt(2 * A / g);
+  hz.state = 'hop'; hz.g = g; hz.vy = -Math.sqrt(2 * g * A); hz.vx = hz.dir * L / T; hz.tongue = -1; hz.puff = 0;
+}
+
 // The man knocked down or lying flat: his whole body turned onto the ground (used for hits and drawing alike).
 function layK(k) {
   if (!k || G.lay < 0.01) return k;
@@ -1384,6 +1467,11 @@ function drawEffects(c, now) {
       c.strokeText(e.text, e.x, e.y - t * 40); c.fillText(e.text, e.x, e.y - t * 40); c.globalAlpha = 1;
     } else if (e.type === 'boom') {
       drawFireball(c, e, now);
+    } else if (e.type === 'anvilsit') {                                  // the anvil resting on the flattened man
+      if (!G.squish) continue;
+      const t = now - e.born, sq = squishAmount(now), top = groundY - charH * 0.97 * (1 - 0.65 * sq), sz = sizeOf('anvil');
+      c.globalAlpha = t < 900 ? 1 : clamp(1 - (t - 900) / 100, 0, 1);
+      drawHazard(c, { kind:'anvil', x: G.squish.x, y: top - sz.h * charH / 2 + charH * 0.02, dir: 1, born: e.born, spin: 0 }, charH, now); c.globalAlpha = 1;
     } else if (e.type === 'fizzle') {                                     // a missed pack bursting on the ground
       const q = (now - e.born) / e.dur;
       c.save(); c.globalAlpha = 1 - q;
@@ -1495,9 +1583,10 @@ function gameFrame(now, dt) {
   let sk = null;
   if (G.state === 'ready') { charX = W / 2; motion.lift = 0; motion.duck = 0; motion.vx = 0; sk = buildBody(); }
   else if (G.state !== 'off' && lm) {
-    const held = G.knock || G.carry;                                    // knocked down or carried off: the player's moves don't count
+    if (G.squish && now - G.squish.at > 1400) G.squish = null;
+    const held = G.knock || G.carry || G.squish;                                    // knocked down or carried off: the player's moves don't count
     if (!lost && !held) { updateMotion(now); updateCharX(now); driftStance(); }
-    if (held) { motion.jump = null; motion.duck = 0; if (!G.carry) motion.lift = 0; }
+    if (held) { motion.jump = null; motion.flip = 0; motion.duck = 0; if (!G.carry) motion.lift = 0; }
     if (G.carry && G.state === 'play') updateCarry(now, dt);
     if (G.flat) motion.duck = 0;
     sk = buildBody(); G.lastSk = sk;
@@ -1536,7 +1625,7 @@ function gameFrame(now, dt) {
       for (const p of G.pending) if (now >= p.at) { spawn(p.lane, now, p.kind, p.aimed); p.done = true; }
       G.pending = G.pending.filter(p => !p.done);
       packsTick(now);
-      updateHazards(now, dt, sk ? layK(sk) : null);
+      updateHazards(now, dt, sk ? txK(sk, manOps(sk, now)) : null);
       updateVillain(now, dt); handlePunch(now);
       $('timeNum').textContent = fmt(now - G.start);
       const boostLeft = Math.max(0, (G.boostUntil || 0) - now);
@@ -1570,9 +1659,14 @@ function gameFrame(now, dt) {
     ctx.save();
     if (manInFront) ctx.translate(0, charH * 0.04);
     if (G.stagger && now - G.stagger.at < 700) { const px = k.hip.x, a = Math.sin((now - G.stagger.at) / 60) * 0.07 * G.stagger.amp * (1 - (now - G.stagger.at) / 700); ctx.translate(px, groundY); ctx.rotate(a); ctx.translate(-px, -groundY); }   // staggering as the ground shakes
-    if (G.lay > 0.01) { const px = k.hip.x, py = groundY; ctx.translate(px, py - charH * 0.07 * Math.sin(G.lay)); ctx.rotate(G.lay * G.laySide); ctx.translate(-px, -py); }
+    const ops = manOps(k, now); applyOps(ctx, ops);
+    const sq = squishAmount(now);
     drawCharacter(ctx, k, selected(), now < G.safeUntil && !G.carry, mood, now, G.state === 'play' || G.state === 'ending' ? LIVES - G.lives : 0);
     if (now < (G.headSplat || 0)) drawSplat(ctx, k.head.x + k.head.r * 0.25, k.head.y - k.head.r * 0.75, charH, clamp((G.headSplat - now) / 800, 0, 1), true);
+    if (sq > 0.05) {                                                    // accordion pleats
+      ctx.strokeStyle = `rgba(30,25,40,${0.45 * sq})`; ctx.lineWidth = 2;
+      for (let i = 1; i < 9; i++) { const y = groundY - charH * 0.96 * i / 9; ctx.beginPath(); for (let j = 0; j <= 6; j++) { const x = k.hip.x - charH * 0.15 + j * charH * 0.05; j ? ctx.lineTo(x, y + (j % 2 ? -1 : 1) * charH * 0.025) : ctx.moveTo(x, y); } ctx.stroke(); }
+    }
     ctx.restore();
   }
   };
@@ -1774,4 +1868,4 @@ initVision()
 requestAnimationFrame(loop);
 
 // Hooks for automated testing.
-window.__dg = { G, B, motion, buildBody, nextLane: () => nextLane(), nextKind: () => nextKind(), spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed), spawnLane: (lane, kind) => spawnLane(lane, performance.now(), kind) };
+window.__dg = { G, B, motion, get flip() { return motion.flip; }, buildBody, nextLane: () => nextLane(), nextKind: () => nextKind(), spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed), spawnLane: (lane, kind) => spawnLane(lane, performance.now(), kind) };

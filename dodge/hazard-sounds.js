@@ -47,7 +47,8 @@ const SOUNDS = {
   pig:      { base:0.45, every:[0.75, 'squeal'], charge:true },
   tire:     { base:1.0, floor:0.25 },                                  // bounces: see bounce()
   eagle:    { base:0.35, every:[0.22, 'flap'], screechAtStart:true, whoosh:true },   // screeches as it starts its dive
-  pogo:     { base:0.9,  floor:0.25 },                                     // boing! on each landing (see play)
+  pogo:     { base:0.9,  floor:0.25 },
+  frog:     { base:1.0,  floor:0.3 },                                      // croaks and thumps: see play()                                     // boing! on each landing (see play)
   boomerang:{ base:0.6,  every:[0.21, 'whirr'], steady:true },            // a flutter as it spins
   missile:  { base:0.3,  hiss:1400, engine:[110, 'sawtooth', 500] },
   arrow:    { base:0.5,  twang:true },                                   // a bow twang, then silent flight
@@ -103,6 +104,15 @@ export function createVoice(a, kind) {
       o.connect(g).connect(out); o.start(at); lfo.start(at); o.stop(at + 0.5); lfo.stop(at + 0.5);
       burst('lowpass', 200, 0.08, 1.2);
     },
+    croak: () => {                                                // a deep two-part "ribbit"
+      const one = d => { const at = t() + d, o = a.createOscillator(), f = a.createBiquadFilter(), g = a.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(150, at); o.frequency.exponentialRampToValueAtTime(95, at + 0.13);
+        f.type = 'bandpass'; f.frequency.value = 420; f.Q.value = 2.5; g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(1.3, at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.15);
+        const am = a.createOscillator(), amg = a.createGain(); am.frequency.value = 45; amg.gain.value = 0.6; am.connect(amg).connect(g.gain);
+        o.connect(f).connect(g).connect(out); o.start(at); am.start(at); o.stop(at + 0.17); am.stop(at + 0.17); };
+      one(0); one(0.19);
+    },
+    frogThump: () => burst('lowpass', 200, 0.14, 1.6),
     stomp: () => { burst('lowpass', 110, 0.3, 2.4); ping('sine', 70, 38, 0.28, 1.4); },   // a huge foot hitting the ground
     trumpet: () => trumpet(a, pan || a.destination, 1.8, 1.15),
     whirr: () => burst('bandpass', 560 + Math.random() * 120, 0.06, 1.2),   // each turn of a boomerang

@@ -31,7 +31,8 @@ export const HAZARDS = {
   ufo:      { lane:'ufo', scale:1.5, w:0.5, h:0.24, speed:0.5, draw:drawUfo },
   tomahawk: { lane:'air', scale:1.0, w:0.33, h:0.14, speed:2.2, arc:true, spins:true, shaped:true, draw:drawTomahawk },   // thrown, spinning end over end
   poop:     { lane:'sky', scale:1, w:0.07, h:0.09, speed:1.3, noPick:true, splat:true, draw:drawPoop },   // the eagle's (only from an eagle)
-  pogo:     { lane:'bounce', scale:1.6, w:0.3, h:0.7, speed:1.0, pogo:true, draw:drawPogo },   // a kid bouncing across on a pogo stick
+  pogo:     { lane:'bounce', scale:1.6, w:0.3, h:0.7, speed:1.0, pogo:true, draw:drawPogo },   // (retired: replaced by the frog)
+  frog:     { lane:'bounce', scale:1, w:0.85, h:0.75, speed:1.0, frog:true, draw:drawFrog },   // a big frog hopping across in bursts
   boomerang:{ lane:'air', scale:1.3, w:0.34, h:0.12, speed:2.4, returns:true, shaped:true, draw:drawBoomerang },        // out and back, spinning flat
 };
 export const BY_LANE = { sky:[], ground:[], air:[], ufo:[], bounce:[], charge:[], pack:[] };
@@ -481,6 +482,68 @@ function drawBoomerang(c, s, t, hz) {
   }
 }
 
+// A big frog, side-on and facing +x, about 3/4 of the man's height sitting up. Mottled green-brown skin with dark
+// blotches, a pale belly, bulging golden eyes with horizontal pupils, a throat that puffs out as it croaks, long
+// webbed back legs folded under it when sitting and stretched out behind when it leaps, and a long pink tongue.
+// hz.air: 0 sitting .. 1 in mid-leap; hz.tongue: 0..1 while flicking (else -1); hz.puff: throat 0..1.
+function drawFrog(c, s, t, hz) {
+  const air = hz && hz.air || 0, tongue = hz && hz.tongue != null ? hz.tongue : -1, puff = hz && hz.puff || 0;
+  const mix = (a, b) => a + (b - a) * air, P = (x0, y0, x1, y1) => [mix(x0, x1) * s, mix(y0, y1) * s];
+  c.save(); c.translate(0, 0.375 * s);                                             // feet on the ground at y = 0
+  const skin = (x, y, r) => { const g = c.createRadialGradient(x - r * 0.3, y - r * 0.5, r * 0.1, x, y, r * 1.2); g.addColorStop(0, '#9cc25a'); g.addColorStop(0.55, '#5f8a35'); g.addColorStop(1, '#3a5a20'); return g; };
+  // back legs (far one darker): hip, knee, ankle, webbed foot
+  for (const [far, dx] of [[true, -0.03], [false, 0]]) {
+    const hip = P(-0.2 + dx, -0.2, -0.22 + dx, -0.28), knee = P(0.02 + dx, -0.15, -0.45 + dx, -0.22), ank = P(-0.16 + dx, -0.03, -0.66 + dx, -0.17), toe = P(0.06 + dx, -0.005, -0.84 + dx, -0.14);
+    c.lineCap = 'round'; c.lineJoin = 'round';
+    c.strokeStyle = far ? '#3d5c22' : '#5a8432'; c.lineWidth = 0.075 * s; c.beginPath(); c.moveTo(...hip); c.lineTo(...knee); c.stroke();
+    c.lineWidth = 0.05 * s; c.beginPath(); c.moveTo(...knee); c.lineTo(...ank); c.stroke();
+    c.lineWidth = 0.03 * s; c.beginPath(); c.moveTo(...ank); c.lineTo(...toe); c.stroke();
+    c.fillStyle = far ? '#4c6e2a' : '#6f9a3e';                                    // webbed toes
+    c.beginPath(); c.moveTo(...ank); for (const a of [-0.35, 0, 0.35]) { const d = Math.hypot(toe[0] - ank[0], toe[1] - ank[1]), ang = Math.atan2(toe[1] - ank[1], toe[0] - ank[0]) + a; c.lineTo(ank[0] + Math.cos(ang) * d * 1.05, ank[1] + Math.sin(ang) * d * 1.05); } c.closePath(); c.fill();
+  }
+  // body: an egg tilted up at the front when sitting, stretched out flat in a leap
+  const bx = mix(-0.02, 0.0) * s, by = mix(-0.3, -0.3) * s, rot = mix(-0.45, -0.08);
+  c.save(); c.translate(bx, by); c.rotate(rot);
+  const body = new Path2D(); body.ellipse(0, 0, mix(0.3, 0.34) * s, mix(0.19, 0.15) * s, 0, 0, 7);
+  c.fillStyle = skin(0, 0, 0.3 * s); c.fill(body);
+  c.save(); c.clip(body);
+  const belly = c.createLinearGradient(0, 0.02 * s, 0, 0.2 * s); belly.addColorStop(0, 'rgba(240,230,170,0)'); belly.addColorStop(1, 'rgba(240,230,170,0.85)');
+  c.fillStyle = belly; c.fillRect(-0.4 * s, 0, 0.8 * s, 0.25 * s);
+  c.fillStyle = 'rgba(40,55,20,0.55)';                                             // dark blotches
+  for (const [x, y, r] of [[-0.15, -0.08, 0.05], [0.0, -0.12, 0.04], [0.12, -0.07, 0.035], [-0.05, -0.02, 0.03], [-0.22, 0.0, 0.03], [0.08, -0.15, 0.025]]) { c.beginPath(); c.ellipse(x * s, y * s, r * s, r * 0.7 * s, 0.4, 0, 7); c.fill(); }
+  c.fillStyle = 'rgba(255,255,255,0.15)'; c.beginPath(); c.ellipse(-0.04 * s, -0.12 * s, 0.18 * s, 0.04 * s, 0, 0, 7); c.fill();   // wet sheen
+  c.restore();
+  c.strokeStyle = 'rgba(30,45,15,0.8)'; c.lineWidth = 1.2; c.stroke(body);
+  c.restore();
+  // head
+  const hx = mix(0.22, 0.3) * s, hy = mix(-0.47, -0.34) * s;
+  const head = new Path2D(); head.ellipse(hx, hy, 0.16 * s, 0.11 * s, mix(-0.25, -0.05), 0, 7);
+  c.fillStyle = skin(hx, hy, 0.16 * s); c.fill(head); c.strokeStyle = 'rgba(30,45,15,0.8)'; c.lineWidth = 1.2; c.stroke(head);
+  // throat puffing out as it croaks
+  if (puff > 0.02) { const tr = (0.03 + 0.06 * puff) * s; const tg = c.createRadialGradient(hx + 0.02 * s, hy + 0.08 * s, 0, hx + 0.02 * s, hy + 0.08 * s, tr); tg.addColorStop(0, '#fbf3c8'); tg.addColorStop(1, '#d8c886');
+    c.fillStyle = tg; c.beginPath(); c.arc(hx + 0.02 * s, hy + 0.08 * s, tr, 0, 7); c.fill(); }
+  // mouth
+  c.strokeStyle = '#2c3b16'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(hx - 0.1 * s, hy + 0.03 * s); c.quadraticCurveTo(hx + 0.05 * s, hy + 0.06 * s, hx + 0.155 * s, hy + 0.0 * s); c.stroke();
+  c.fillStyle = '#2c3b16'; c.beginPath(); c.arc(hx + 0.13 * s, hy - 0.04 * s, 0.006 * s, 0, 7); c.fill();   // nostril
+  // the tongue: shoots out, sticky pink tip, and snaps back
+  if (tongue >= 0) {
+    const ext = Math.sin(Math.PI * tongue) * 0.42 * s, mx = hx + 0.15 * s, my = hy + 0.01 * s;
+    c.strokeStyle = '#e8708a'; c.lineWidth = 0.02 * s; c.lineCap = 'round'; c.beginPath(); c.moveTo(mx, my); c.quadraticCurveTo(mx + ext * 0.5, my - ext * 0.12, mx + ext, my - ext * 0.05); c.stroke();
+    c.fillStyle = '#d6476a'; c.beginPath(); c.arc(mx + ext, my - ext * 0.05, 0.022 * s, 0, 7); c.fill();
+  }
+  // bulging eye on top of the head
+  const ex = hx + 0.02 * s, ey = hy - 0.1 * s;
+  c.fillStyle = skin(ex, ey, 0.07 * s); c.beginPath(); c.arc(ex, ey, 0.068 * s, 0, 7); c.fill();
+  const eg = c.createRadialGradient(ex + 0.01 * s, ey - 0.01 * s, 0, ex, ey, 0.052 * s); eg.addColorStop(0, '#ffe27a'); eg.addColorStop(1, '#b8860b');
+  c.fillStyle = eg; c.beginPath(); c.arc(ex + 0.008 * s, ey, 0.05 * s, 0, 7); c.fill();
+  c.fillStyle = '#0c0c0c'; c.beginPath(); c.ellipse(ex + 0.01 * s, ey, 0.032 * s, 0.014 * s, 0, 0, 7); c.fill();
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(ex - 0.012 * s, ey - 0.02 * s, 0.01 * s, 0, 7); c.fill();
+  // front leg: straight down when sitting, reaching forward in a leap
+  const sh = P(0.12, -0.3, 0.2, -0.27), fh = P(0.18, -0.005, 0.42, -0.2);
+  c.strokeStyle = '#5a8432'; c.lineWidth = 0.04 * s; c.lineCap = 'round'; c.beginPath(); c.moveTo(...sh); c.lineTo(...fh); c.stroke();
+  c.fillStyle = '#6f9a3e'; for (const a of [-0.5, 0, 0.5]) { c.beginPath(); c.arc(fh[0] + Math.cos(a) * 0.025 * s, fh[1] + Math.sin(a) * 0.012 * s, 0.01 * s, 0, 7); c.fill(); }
+  c.restore();
+}
 // A kid on a pogo stick, side-on and facing +x: a chrome pole with handlebar grips and foot pegs, a coiled
 // spring that squashes on each landing, and a grinning kid in a red helmet, striped T-shirt, shorts and
 // sneakers, knees bent, hair flying up as he comes down. (0, 0) is the middle; the rubber foot is at +0.35.
