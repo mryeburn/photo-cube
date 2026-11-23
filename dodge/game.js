@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '2.8';
+const VERSION = '2.9';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit

@@ -67,6 +67,15 @@ function drawBomb(c, s, t) {
   c.fillStyle = sp; c.beginPath(); c.arc(sx, sy, f * 1.8, 0, 7); c.fill();
   c.strokeStyle = '#ffd43b'; c.lineWidth = 1.2;
   for (let i = 0; i < 6; i++) { const a = i + t / 60; c.beginPath(); c.moveTo(sx + Math.cos(a) * f * 0.6, sy + Math.sin(a) * f * 0.6); c.lineTo(sx + Math.cos(a) * f * 1.6, sy + Math.sin(a) * f * 1.6); c.stroke(); }
+  { const body = new Path2D(); body.arc(0, 0.04 * s, 0.12 * s, 0, 7); let r = 5; const rnd = () => { r = (r * 16807) % 2147483647; return (r - 1) / 2147483646; };
+    c.save(); c.clip(body);
+    for (let i = 0; i < 70; i++) { c.fillStyle = rnd() < 0.6 ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.08)'; c.beginPath(); c.arc((rnd() - 0.5) * 0.24 * s, (rnd() - 0.5) * 0.24 * s + 0.04 * s, (0.002 + rnd() * 0.004) * s, 0, 7); c.fill(); }   // pitting
+    c.strokeStyle = 'rgba(0,0,0,0.6)'; c.lineWidth = 0.008 * s; c.beginPath(); c.ellipse(0, 0.045 * s, 0.12 * s, 0.03 * s, 0, 0, Math.PI); c.stroke();   // weld seam
+    c.strokeStyle = 'rgba(255,255,255,0.15)'; c.lineWidth = 1; c.beginPath(); c.ellipse(0, 0.04 * s, 0.12 * s, 0.03 * s, 0, 0, Math.PI); c.stroke();
+    c.fillStyle = 'rgba(110,116,124,0.45)'; for (let i = 0; i < 5; i++) { const a = 0.45 + i * 0.56; c.beginPath(); c.arc(Math.cos(a) * 0.117 * s, 0.045 * s + Math.sin(a) * 0.03 * s, 0.004 * s, 0, 7); c.fill(); }   // rivets
+    const bounce = c.createRadialGradient(0.03 * s, 0.15 * s, 0, 0.03 * s, 0.15 * s, 0.1 * s); bounce.addColorStop(0, 'rgba(120,150,190,0.35)'); bounce.addColorStop(1, 'rgba(120,150,190,0)');
+    c.fillStyle = bounce; c.fillRect(-0.12 * s, 0, 0.24 * s, 0.17 * s);
+    c.restore(); }
 }
 // A cast-iron 25-ton weight: dark metal with a rough sheen, bevelled edges, an iron ring on top, raised lettering.
 function drawWeight(c, s) {
@@ -80,6 +89,14 @@ function drawWeight(c, s) {
   c.save(); c.clip(body); c.fillStyle = 'rgba(0,0,0,0.12)'; for (let i = 0; i < 40; i++) { c.beginPath(); c.arc(((i * 37) % 40 / 40 - 0.5) * 0.4 * s, ((i * 23) % 40 / 40 - 0.4) * 0.26 * s, 0.006 * s, 0, 7); c.fill(); } c.restore();   // pitted iron
   c.font = `900 ${0.085 * s}px "Trebuchet MS", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
   c.fillStyle = 'rgba(0,0,0,0.5)'; c.fillText('25 TON', 0.003 * s, 0.047 * s); c.fillStyle = '#c9ced3'; c.fillText('25 TON', 0, 0.042 * s);
+  c.save(); c.clip(body);
+  for (const [x, w, l] of [[-0.13, 0.004, 0.09], [-0.1, 0.007, 0.05], [-0.04, 0.005, 0.12], [0.02, 0.003, 0.07], [0.06, 0.006, 0.1], [0.11, 0.004, 0.06], [0.135, 0.008, 0.04]]) {
+    const g = c.createLinearGradient(0, -0.1 * s, 0, (-0.1 + l) * s); g.addColorStop(0, 'rgba(140,70,25,0.4)'); g.addColorStop(1, 'rgba(140,70,25,0)'); c.fillStyle = g; c.fillRect(x * s, -0.1 * s, w * s, l * s);   // rust run-off
+  }
+  const base = c.createLinearGradient(0, 0.11 * s, 0, 0.16 * s); base.addColorStop(0, 'rgba(150,75,30,0)'); base.addColorStop(1, 'rgba(150,75,30,0.5)'); c.fillStyle = base; c.fillRect(-0.21 * s, 0.11 * s, 0.42 * s, 0.05 * s);
+  c.strokeStyle = 'rgba(0,0,0,0.3)'; c.lineWidth = 1; c.beginPath(); c.moveTo(-0.18 * s, 0.105 * s); c.lineTo(0.18 * s, 0.105 * s); c.stroke();
+  c.fillStyle = 'rgba(220,225,230,0.5)'; for (const [x, y] of [[-0.205, 0.15], [0.2, 0.15], [-0.148, -0.095], [0.146, -0.094]]) { c.beginPath(); c.arc(x * s, y * s, 0.009 * s, 0, 7); c.fill(); }
+  c.restore();
 }
 // The elephant, drawn with shaded, wrinkled grey skin. It tumbles as it falls (the game turns it); here its
 // legs paddle, its big ear flaps and its trunk swings and curls in alarm.
@@ -181,6 +198,14 @@ function drawAnvil(c, s) {
   c.fillStyle = face; c.fillRect(-0.19 * s, -0.11 * s, 0.33 * s, 0.018 * s);                          // polished top
   c.fillStyle = '#1a1d20'; c.fillRect(-0.15 * s, -0.103 * s, 0.018 * s, 0.012 * s);                  // hardy hole
   c.strokeStyle = 'rgba(255,255,255,0.25)'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0.15 * s, -0.1 * s); c.quadraticCurveTo(0.2 * s, -0.1 * s, 0.23 * s, -0.097 * s); c.stroke();
+  { let r = 11; const rnd = () => { r = (r * 16807) % 2147483647; return (r - 1) / 2147483646; };
+  c.save(); c.clip(p);
+  for (let i = 0; i < 45; i++) { c.fillStyle = rnd() < 0.5 ? 'rgba(60,72,100,0.25)' : 'rgba(0,0,0,0.22)'; c.beginPath(); c.ellipse((-0.19 + rnd() * 0.43) * s, (-0.09 + rnd() * 0.2) * s, (0.006 + rnd() * 0.016) * s, (0.004 + rnd() * 0.008) * s, rnd() * 3, 0, 7); c.fill(); }
+  const foot = c.createLinearGradient(0, 0.06 * s, 0, 0.11 * s); foot.addColorStop(0, 'rgba(140,70,25,0)'); foot.addColorStop(1, 'rgba(140,70,25,0.5)'); c.fillStyle = foot; c.fillRect(-0.2 * s, 0.06 * s, 0.4 * s, 0.05 * s);
+  c.restore();
+  c.strokeStyle = 'rgba(0,0,0,0.15)'; c.lineWidth = 1;
+  for (let i = 0; i < 9; i++) { const x = (-0.16 + rnd() * 0.28) * s; c.beginPath(); c.arc(x, -0.1 * s, 0.006 * s, 0.2, Math.PI - 0.2); c.stroke(); }   // hammer marks
+  }
 }
 // A small propeller plane seen side-on: a shaded fuselage, a glass canopy with the pilot, a wing, a tail
 // fin and tailplane, a spinning propeller disc and a smoke trail. The game turns it along its dive.
@@ -212,6 +237,18 @@ function drawPlane(c, s, t) {
   c.beginPath(); c.moveTo(0.235 * s, -Math.cos(pa) * 0.11 * s); c.lineTo(0.235 * s, Math.cos(pa) * 0.11 * s); c.stroke();
   c.fillStyle = '#e03131'; c.beginPath(); c.ellipse(0.228 * s, 0, 0.018 * s, 0.022 * s, 0, 0, 7); c.fill(); c.strokeStyle = INK; c.lineWidth = 1; c.stroke();
   c.restore();
+  c.save(); c.clip(fus);
+  c.strokeStyle = 'rgba(0,0,0,0.22)'; c.lineWidth = 1;
+  for (const x of [0.12, 0.0, -0.1, -0.19]) { c.beginPath(); c.moveTo(x * s, -0.07 * s); c.lineTo((x - 0.005) * s, 0.06 * s); c.stroke(); }
+  c.fillStyle = 'rgba(60,60,60,0.35)'; for (let x = -0.25; x < 0.18; x += 0.018) { c.beginPath(); c.arc(x * s, 0.03 * s, 0.0025 * s, 0, 7); c.fill(); }
+  const ex = c.createLinearGradient(0.17 * s, 0, -0.12 * s, 0); ex.addColorStop(0, 'rgba(40,35,30,0.55)'); ex.addColorStop(1, 'rgba(40,35,30,0)');
+  c.fillStyle = ex; c.fillRect(-0.12 * s, 0.012 * s, 0.29 * s, 0.03 * s);
+  c.restore();
+  c.strokeStyle = '#495057'; c.lineWidth = 0.01 * s; c.lineCap = 'round';
+  c.beginPath(); c.moveTo(0.03 * s, 0.045 * s); c.lineTo(0.05 * s, 0.09 * s); c.moveTo(0.0, 0.045 * s); c.lineTo(0.035 * s, 0.09 * s); c.stroke();
+  c.fillStyle = '#1f1f1f'; c.beginPath(); c.arc(0.045 * s, 0.095 * s, 0.022 * s, 0, 7); c.fill();
+  c.fillStyle = '#adb5bd'; c.beginPath(); c.arc(0.045 * s, 0.095 * s, 0.008 * s, 0, 7); c.fill();
+  c.fillStyle = '#1f1f1f'; c.beginPath(); c.arc(-0.255 * s, 0.03 * s, 0.009 * s, 0, 7); c.fill();
 }
 
 // A red sedan, side view: glossy shaded paintwork with a reflection, tinted windows reflecting the sky,
@@ -262,7 +299,14 @@ function drawTire(c, s, t) {
   c.fillStyle = rim; c.beginPath(); c.arc(0, 0, 0.068 * s, 0, 7); c.fill(); c.strokeStyle = INK; c.lineWidth = 1; c.stroke();
   c.fillStyle = '#495057'; for (let i = 0; i < 5; i++) { const a = i / 5 * Math.PI * 2; c.beginPath(); c.arc(Math.cos(a) * 0.035 * s, Math.sin(a) * 0.035 * s, 0.008 * s, 0, 7); c.fill(); }   // wheel nuts
   c.fillStyle = '#343a40'; c.beginPath(); c.arc(0, 0, 0.016 * s, 0, 7); c.fill();
+  c.fillStyle = '#2b2f33';
+  for (let i = 0; i < 5; i++) { const a = (i + 0.5) / 5 * Math.PI * 2; c.beginPath(); c.arc(0, 0, 0.062 * s, a - 0.36, a + 0.36); c.arc(0, 0, 0.044 * s, a + 0.3, a - 0.3, true); c.closePath(); c.fill(); }
+  c.strokeStyle = 'rgba(0,0,0,0.8)'; c.lineWidth = 1;
+  for (let i = 0; i < 36; i++) { const a = i / 36 * Math.PI * 2; c.beginPath(); c.moveTo(Math.cos(a) * 0.108 * s, Math.sin(a) * 0.108 * s); c.lineTo(Math.cos(a + 0.05) * 0.128 * s, Math.sin(a + 0.05) * 0.128 * s); c.stroke(); }
+  c.strokeStyle = 'rgba(255,255,255,0.08)'; c.lineWidth = 0.01 * s; c.beginPath(); c.arc(0, 0, 0.085 * s, Math.PI * 1.1, Math.PI * 1.6); c.stroke();
   c.restore();
+  const dirt = c.createLinearGradient(0, 0.05 * s, 0, 0.13 * s); dirt.addColorStop(0, 'rgba(120,95,60,0)'); dirt.addColorStop(1, 'rgba(120,95,60,0.35)');   // dust from the road
+  c.fillStyle = dirt; c.beginPath(); c.arc(0, 0, 0.13 * s, 0, Math.PI); c.fill();
 }
 
 // ---------------------------------------------------------------- air (head height)
@@ -281,6 +325,8 @@ function drawEagle(c, s, t, hz) {
     }
     c.strokeStyle = 'rgba(255,220,170,0.25)'; c.lineWidth = 1;
     for (let i = 1; i < 4; i++) { c.beginPath(); c.moveTo(0.04 * s - i * 0.02 * s, -0.02 * s); c.lineTo(0.02 * s - i * 0.03 * s, -0.17 * s); c.stroke(); }   // feather lines
+    c.strokeStyle = 'rgba(15,8,3,0.4)';
+    for (let row = 0; row < 3; row++) for (let i = 0; i < 4; i++) { c.beginPath(); c.arc(0.03 * s - i * 0.025 * s - row * 0.012 * s, -0.025 * s - row * 0.04 * s - i * 0.006 * s, 0.012 * s, 0.25, Math.PI - 0.25); c.stroke(); }   // rows of covert feathers
     c.restore();
   };
   wing(true);
@@ -302,6 +348,9 @@ function drawEagle(c, s, t, hz) {
   c.fillStyle = '#1a1208'; c.beginPath(); c.arc(0.15 * s, -0.035 * s, 0.005 * s, 0, 7); c.fill();
   c.strokeStyle = '#495057'; c.lineWidth = 1.5; c.beginPath(); c.moveTo(0.13 * s, -0.05 * s); c.lineTo(0.165 * s, -0.043 * s); c.stroke();   // stern brow
   wing(false);
+  c.fillStyle = '#f2c230'; c.beginPath(); c.ellipse(0.168 * s, -0.033 * s, 0.008 * s, 0.009 * s, 0, 0, 7); c.fill();   // cere
+  c.fillStyle = '#5a4300'; c.beginPath(); c.ellipse(0.175 * s, -0.031 * s, 0.003 * s, 0.002 * s, 0, 0, 7); c.fill();   // nostril
+  c.fillStyle = '#111'; for (const [x, y] of [[-0.062, 0.057], [-0.042, 0.062]]) { c.beginPath(); c.arc(x * s, y * s, 0.006 * s, 0, 7); c.fill(); }   // claws
 }
 // A missile: a rounded metal body shaded like a cylinder, a red nose cone, panel lines and rivets, swept
 // fins, and a roaring exhaust flame with a smoke trail.
@@ -354,6 +403,10 @@ function drawArrow(c, s) {
     c.fillStyle = col; c.beginPath(); c.moveTo(-0.17 * s, sy * 0.008 * s); c.quadraticCurveTo(-0.2 * s, sy * 0.045 * s, -0.26 * s, sy * 0.045 * s); c.lineTo(-0.245 * s, sy * 0.008 * s); c.closePath(); c.fill(); c.strokeStyle = INK; c.lineWidth = 1; c.stroke();
     c.strokeStyle = 'rgba(0,0,0,0.2)'; for (let i = 0; i < 4; i++) { c.beginPath(); c.moveTo(-0.19 * s - i * 0.015 * s, sy * 0.01 * s); c.lineTo(-0.2 * s - i * 0.015 * s, sy * 0.038 * s); c.stroke(); }
   }
+  c.fillStyle = '#2b2b2b'; c.fillRect(-0.268 * s, -0.01 * s, 0.02 * s, 0.02 * s);
+  c.fillStyle = '#9a9a9a'; c.fillRect(-0.268 * s, -0.002 * s, 0.009 * s, 0.004 * s);          // nock slot for the bowstring
+  c.strokeStyle = '#4a3020'; c.lineWidth = 1.2;
+  for (const x of [-0.168, -0.162, -0.156, 0.178, 0.184]) { c.beginPath(); c.moveTo(x * s, -0.009 * s); c.lineTo(x * s, 0.009 * s); c.stroke(); }
 }
 // A tomahawk: a wooden handle with grain, a leather wrap and feathers, and a big steel head with a broad
 // crescent blade (pointing towards -y) and a short hammer back (+y). The game spins it.
@@ -376,6 +429,16 @@ function drawTomahawk(c, s) {
   c.fillStyle = steel; c.fill(head); c.strokeStyle = INK; c.lineWidth = 1.3; c.stroke(head);
   c.strokeStyle = '#ffffff'; c.lineWidth = 2; c.beginPath(); c.moveTo(0.072 * s, -0.112 * s); c.quadraticCurveTo(0.122 * s, -0.152 * s, 0.192 * s, -0.12 * s); c.stroke();   // bright cutting edge
   c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(0.088 * s, -0.016 * s, 0.058 * s, 0.032 * s);       // socket shadow
+  { let r = 17; const rnd = () => { r = (r * 16807) % 2147483647; return (r - 1) / 2147483646; };
+  c.save(); c.clip(head);
+  for (let i = 0; i < 40; i++) { c.fillStyle = rnd() < 0.6 ? 'rgba(30,35,40,0.25)' : 'rgba(255,255,255,0.25)'; c.beginPath(); c.arc((0.06 + rnd() * 0.14) * s, (-0.15 + rnd() * 0.2) * s, (0.002 + rnd() * 0.005) * s, 0, 7); c.fill(); }
+  const bevel = c.createLinearGradient(0.1 * s, -0.1 * s, 0.15 * s, -0.15 * s); bevel.addColorStop(0, 'rgba(255,255,255,0)'); bevel.addColorStop(1, 'rgba(255,255,255,0.45)');
+  c.strokeStyle = bevel; c.lineWidth = 0.018 * s; c.beginPath(); c.moveTo(0.075 * s, -0.1 * s); c.quadraticCurveTo(0.122 * s, -0.138 * s, 0.185 * s, -0.11 * s); c.stroke();
+  c.restore();
+  c.strokeStyle = 'rgba(230,210,170,0.7)'; c.lineWidth = 0.8;
+  for (let i = 0; i < 5; i++) { const x = (-0.155 + i * 0.016) * s; c.beginPath(); c.moveTo(x, -0.012 * s); c.lineTo(x + 0.008 * s, 0.012 * s); c.stroke(); }   // lacing
+  for (const [x, y, col] of [[-0.17, 0.02, '#20c997'], [-0.172, 0.031, '#e03131'], [-0.17, 0.042, '#20c997']]) { c.fillStyle = col; c.beginPath(); c.arc(x * s, y * s, 0.005 * s, 0, 7); c.fill(); }   // beads
+  }
 }
 // A boomerang: carved wood in a V, painted with bright bands, spinning flat. (Elbow at the top, arms down.)
 function drawBoomerang(c, s, t, hz) {
@@ -392,6 +455,16 @@ function drawBoomerang(c, s, t, hz) {
     for (const [k, col] of [[0.35, '#e03131'], [0.55, '#f8f9fa'], [0.75, '#1c7ed6']]) { c.fillStyle = col; c.save(); c.translate(sx * k * 0.17 * s, (k * 0.1 - 0.035) * s); c.rotate(sx * 0.8); c.fillRect(-0.004 * s, -0.04 * s, 0.012 * s, 0.08 * s); c.restore(); }
     c.restore(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke(p);
   }
+  for (const sx of [-1, 1]) {
+    const p = arm(sx);
+    c.save(); c.clip(p);
+    c.strokeStyle = 'rgba(80,45,15,0.3)'; c.lineWidth = 0.8;
+    for (let k = 0; k < 4; k++) { c.beginPath(); c.moveTo(0, (-0.04 + k * 0.01) * s); c.quadraticCurveTo(sx * 0.09 * s, (-0.028 + k * 0.012) * s, sx * 0.17 * s, (0.05 + k * 0.006) * s); c.stroke(); }
+    for (let i = 0; i < 9; i++) { const u = 0.12 + i * 0.09, x = sx * u * 0.165 * s, y = (-0.028 + u * u * 0.085) * s;
+      c.fillStyle = i % 2 ? '#fff4d6' : '#ffd43b'; c.beginPath(); c.arc(x, y, 0.004 * s, 0, 7); c.fill(); }
+    c.strokeStyle = 'rgba(255,255,255,0.35)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(0, -0.04 * s); c.quadraticCurveTo(sx * 0.09 * s, -0.03 * s, sx * 0.155 * s, 0.04 * s); c.stroke();
+    c.restore();
+  }
 }
 
 // Size on screen, in character heights.
@@ -403,59 +476,66 @@ export const sizeOf = kind => ({ w: HAZARDS[kind].w * HAZARDS[kind].scale, h: HA
 export function drawWreck(c, x, y, s, age, dir) {
   const fade = Math.min(1, Math.max(0, (4200 - age) / 900));
   const burst = 1 + 1.2 * Math.max(0, 1 - age / 700);                       // flames leap up, then settle
-  const tsec = age / 1000;
+  const settle = age < 2800 ? 1 : fade, tsec = age / 1000;
   c.save(); c.globalAlpha = fade; c.translate(x, y);
-  // glow on the ground
-  const glow = c.createRadialGradient(0, 0, 0, 0, 0, s * 0.6);
-  glow.addColorStop(0, 'rgba(255,170,60,0.55)'); glow.addColorStop(1, 'rgba(255,120,0,0)');
-  c.fillStyle = glow; c.beginPath(); c.ellipse(0, 0, s * 0.6, s * 0.16, 0, 0, 7); c.fill();
-  // black smoke column, billowing and drifting
-  for (let i = 0; i < 9; i++) {
-    const t = (tsec * 0.8 + i / 9) % 1, r = s * (0.07 + t * 0.2);
-    c.fillStyle = `rgba(40,40,40,${0.55 * (1 - t)})`;
-    c.beginPath(); c.arc(Math.sin(i * 1.7 + tsec * 1.3) * s * 0.06 + t * s * 0.15 * dir, -s * 0.3 - t * s * 0.9, r, 0, 7); c.fill();
-  }
-  // tail fin
-  c.save(); c.scale(dir, 1); c.rotate(-0.5);
-  c.fillStyle = '#495057'; c.strokeStyle = '#1f1a2e'; c.lineWidth = 3;
-  c.beginPath(); c.moveTo(-s * 0.18, -s * 0.02); c.lineTo(-s * 0.3, -s * 0.22); c.lineTo(-s * 0.12, -s * 0.06); c.closePath(); c.fill(); c.stroke();
-  c.restore();
-  // molten hunk
-  const heat = 0.6 + 0.4 * Math.sin(age / 110);
-  c.fillStyle = '#343a40'; c.strokeStyle = '#1f1a2e'; c.lineWidth = 3;
-  c.beginPath(); c.moveTo(-s * 0.24, 0); c.quadraticCurveTo(-s * 0.22, -s * 0.13, -s * 0.05, -s * 0.14);
-  c.quadraticCurveTo(s * 0.09, -s * 0.2, s * 0.22, -s * 0.08); c.quadraticCurveTo(s * 0.27, -s * 0.02, s * 0.24, 0); c.closePath(); c.fill(); c.stroke();
-  c.fillStyle = `rgba(255,${80 + 70 * heat},20,0.9)`; c.beginPath(); c.ellipse(0, -s * 0.05, s * 0.14, s * 0.045, 0.1, 0, 7); c.fill();
-  c.fillStyle = `rgba(255,240,170,${heat})`; c.beginPath(); c.ellipse(s * 0.02, -s * 0.05, s * 0.06, s * 0.02, 0.1, 0, 7); c.fill();
-  // flames: overlapping tongues that wobble and flicker, drawn back to front
-  const tongue = (fx, base, height, width, colour, seed) => {
-    const sway = Math.sin(tsec * 9 + seed) * width * 0.6 + Math.sin(tsec * 23 + seed * 2) * width * 0.25;
-    c.fillStyle = colour; c.beginPath();
-    c.moveTo(fx - width, base);
-    c.bezierCurveTo(fx - width * 1.1, base - height * 0.45, fx + sway - width * 0.4, base - height * 0.7, fx + sway, base - height);
-    c.bezierCurveTo(fx + sway + width * 0.4, base - height * 0.7, fx + width * 1.1, base - height * 0.45, fx + width, base);
-    c.closePath(); c.fill();
-  };
-  const settle = age < 2800 ? 1 : fade;
-  for (const [layer, colour, k] of [[0, 'rgba(200,30,10,0.85)', 1.0], [1, 'rgba(255,110,0,0.9)', 0.78], [2, 'rgba(255,200,40,0.95)', 0.55], [3, 'rgba(255,250,220,0.95)', 0.3]]) {
-    for (let i = -3; i <= 3; i++) {
-      const seed = i * 2.1 + layer, flick = 0.75 + 0.25 * Math.sin(tsec * 14 + seed * 3);
-      const hgt = s * (0.32 - Math.abs(i) * 0.05) * k * flick * burst * settle;
-      if (hgt <= 0) continue;
-      tongue(i * s * 0.06, -s * 0.04, hgt, s * (0.05 - layer * 0.008), colour, seed);
-    }
-  }
-  // sparks drifting up
+  // scorched ground, lit by the fire
+  const scorch = c.createRadialGradient(0, 0, 0, 0, 0, s * 0.45); scorch.addColorStop(0, 'rgba(25,18,12,0.8)'); scorch.addColorStop(1, 'rgba(25,18,12,0)');
+  c.fillStyle = scorch; c.beginPath(); c.ellipse(0, s * 0.01, s * 0.45, s * 0.06, 0, 0, 7); c.fill();
+  const flick = 0.8 + 0.2 * Math.sin(tsec * 17) * Math.sin(tsec * 7);
+  const glow = c.createRadialGradient(0, 0, 0, 0, 0, s * 0.7); glow.addColorStop(0, `rgba(255,160,60,${0.5 * flick})`); glow.addColorStop(1, 'rgba(255,120,0,0)');
+  c.fillStyle = glow; c.beginPath(); c.ellipse(0, 0, s * 0.7, s * 0.18, 0, 0, 7); c.fill();
+  // thick smoke: big soft billows rising, spreading and drifting downwind
   for (let i = 0; i < 14; i++) {
-    const t = (tsec * 0.9 + i / 14) % 1, sx = Math.sin(i * 3.3) * s * 0.2 + Math.sin(tsec * 3 + i) * s * 0.04;
-    c.fillStyle = `rgba(255,${180 + 60 * Math.sin(i)},60,${1 - t})`;
-    c.beginPath(); c.arc(sx, -s * 0.1 - t * s * 0.7 * burst, s * 0.008, 0, 7); c.fill();
+    const t = (tsec * 0.35 + i / 14) % 1, r = s * (0.06 + t * 0.28);
+    const px = Math.sin(i * 2.3 + tsec * 0.8) * s * 0.05 + t * t * s * 0.35 * dir, py = -s * 0.18 - t * s * 1.3;
+    const al = 0.6 * (1 - t) * Math.min(1, t * 6);
+    const g = c.createRadialGradient(px - r * 0.3, py - r * 0.3, r * 0.1, px, py, r);
+    g.addColorStop(0, `rgba(70,66,64,${al})`); g.addColorStop(0.6, `rgba(35,33,32,${al * 0.9})`); g.addColorStop(1, 'rgba(30,30,30,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(px, py, r, 0, 7); c.fill();
+  }
+  // the wreck: a crumpled, blackened fuselage with the tail fin sticking up (a little of its orange paint left)
+  c.save(); c.scale(dir, 1); c.rotate(0.5);
+  const fin = new Path2D(); fin.moveTo(-s * 0.18, -s * 0.02); fin.lineTo(-s * 0.3, -s * 0.22); fin.lineTo(-s * 0.25, -s * 0.22); fin.lineTo(-s * 0.12, -s * 0.06); fin.closePath();
+  const fg = c.createLinearGradient(-s * 0.3, -s * 0.22, -s * 0.12, 0); fg.addColorStop(0, '#a8461a'); fg.addColorStop(0.45, '#4a3a33'); fg.addColorStop(1, '#151515');
+  c.fillStyle = fg; c.fill(fin); c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 1.2; c.stroke(fin);
+  c.restore();
+  const hunk = new Path2D();
+  hunk.moveTo(-s * 0.24, 0); hunk.lineTo(-s * 0.23, -s * 0.07); hunk.lineTo(-s * 0.17, -s * 0.11); hunk.lineTo(-s * 0.12, -s * 0.09); hunk.lineTo(-s * 0.05, -s * 0.15);
+  hunk.lineTo(s * 0.03, -s * 0.13); hunk.lineTo(s * 0.09, -s * 0.18); hunk.lineTo(s * 0.15, -s * 0.12); hunk.lineTo(s * 0.22, -s * 0.09); hunk.lineTo(s * 0.25, -s * 0.03); hunk.lineTo(s * 0.24, 0); hunk.closePath();
+  const hg = c.createLinearGradient(0, -s * 0.18, 0, 0); hg.addColorStop(0, '#5a5550'); hg.addColorStop(0.4, '#2a2826'); hg.addColorStop(1, '#0f0e0d');
+  c.fillStyle = hg; c.fill(hunk); c.strokeStyle = 'rgba(0,0,0,0.7)'; c.lineWidth = 1.2; c.stroke(hunk);
+  c.save(); c.clip(hunk);
+  const heat = 0.6 + 0.4 * Math.sin(age / 110);                                    // molten metal glowing through cracks
+  const mol = c.createRadialGradient(0, -s * 0.04, 0, 0, -s * 0.04, s * 0.16); mol.addColorStop(0, `rgba(255,${190 + 50 * heat},120,${0.9 * settle})`); mol.addColorStop(0.5, `rgba(255,${90 + 60 * heat},20,${0.6 * settle})`); mol.addColorStop(1, 'rgba(200,40,0,0)');
+  c.fillStyle = mol; c.beginPath(); c.ellipse(0, -s * 0.04, s * 0.16, s * 0.06, 0.1, 0, 7); c.fill();
+  c.strokeStyle = `rgba(255,${150 + 80 * heat},60,${0.9 * settle})`; c.lineWidth = 1.5;
+  for (const [x0, y0, x1, y1] of [[-0.2, -0.04, -0.1, -0.07], [-0.02, -0.12, 0.05, -0.06], [0.1, -0.13, 0.18, -0.05], [-0.13, -0.02, 0.02, -0.03]]) { c.beginPath(); c.moveTo(x0 * s, y0 * s); c.lineTo((x0 + x1) / 2 * s + 2, (y0 + y1) / 2 * s - 2); c.lineTo(x1 * s, y1 * s); c.stroke(); }
+  c.restore();
+  // fire: many glowing particles rising from the wreck, added together so the thick of the fire burns
+  // white-hot and the edges flicker orange and red
+  c.globalCompositeOperation = 'lighter';
+  for (let i = 0; i < 48; i++) {
+    const seed = i * 7.31, life = 0.45 + (i % 7) * 0.06, t = ((tsec + seed) % life) / life;
+    const bx = Math.sin(seed * 3.1) * s * 0.2 * (1 - t * 0.5), sway = Math.sin(tsec * 6 + seed) * s * 0.025 * t;
+    const px = bx + sway, py = -s * 0.06 - t * s * (0.3 + 0.15 * Math.abs(Math.cos(seed))) * burst * settle;
+    const r = s * (0.075 * (1 - t) + 0.02) * (0.8 + 0.4 * Math.abs(Math.sin(seed)));
+    const a = (1 - t) * 0.5 * settle, gG = Math.round(220 - 170 * t), gB = Math.round(110 - 100 * t);
+    const g = c.createRadialGradient(px, py, 0, px, py, r);
+    g.addColorStop(0, `rgba(255,${gG},${gB},${a})`); g.addColorStop(0.5, `rgba(255,${Math.round(gG * 0.6)},10,${a * 0.6})`); g.addColorStop(1, 'rgba(180,30,0,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(px, py, r, 0, 7); c.fill();
+  }
+  c.globalCompositeOperation = 'source-over';
+  // sparks and embers drifting up
+  for (let i = 0; i < 18; i++) {
+    const t = (tsec * 0.9 + i / 18) % 1, sx = Math.sin(i * 3.3) * s * 0.2 + Math.sin(tsec * 3 + i) * s * 0.05;
+    c.fillStyle = `rgba(255,${180 + 60 * Math.sin(i)},80,${(1 - t) * settle})`;
+    c.beginPath(); c.arc(sx, -s * 0.1 - t * s * 0.8 * burst, s * 0.006, 0, 7); c.fill();
   }
   c.restore();
 }
 
 // A flying saucer: polished metal shaded top to bottom, a darker rim band with a ring of rotating lights,
-// a glowing underside, and a glass dome with a reflection and a little green pilot.
+// a glowing underside, and a glass dome with a reflection and a grey alien pilot.
 function drawUfo(c, s, t) {
   // glow beneath
   const under = c.createRadialGradient(0, 0.06 * s, 0, 0, 0.06 * s, 0.22 * s);
@@ -470,10 +550,19 @@ function drawUfo(c, s, t) {
   glass.addColorStop(0, 'rgba(235,250,255,0.95)'); glass.addColorStop(0.5, 'rgba(140,200,240,0.7)'); glass.addColorStop(1, 'rgba(60,110,160,0.85)');
   c.fillStyle = glass; c.fill(dome);
   c.save(); c.clip(dome);
-  c.fillStyle = '#5fbf6a'; c.beginPath(); c.ellipse(0, -0.065 * s, 0.032 * s, 0.038 * s, 0, 0, 7); c.fill();    // head
-  c.fillStyle = '#4c9a56'; c.beginPath(); c.ellipse(0, -0.02 * s, 0.045 * s, 0.025 * s, 0, 0, 7); c.fill();     // shoulders
-  c.fillStyle = '#111'; for (const sx of [-1, 1]) { c.beginPath(); c.ellipse(sx * 0.013 * s, -0.07 * s, 0.011 * s, 0.017 * s, sx * 0.4, 0, 7); c.fill(); }
-  c.fillStyle = 'rgba(255,255,255,0.7)'; for (const sx of [-1, 1]) { c.beginPath(); c.arc(sx * 0.011 * s, -0.077 * s, 0.003 * s, 0, 7); c.fill(); }
+  // the pilot: a grey alien, a big bulbous head on a thin neck, huge glossy black almond eyes, a tiny mouth
+  c.fillStyle = '#2c3138'; c.beginPath(); c.ellipse(0, -0.012 * s, 0.045 * s, 0.022 * s, 0, 0, 7); c.fill();          // dark suit
+  c.fillStyle = '#9aa29c'; c.fillRect(-0.007 * s, -0.045 * s, 0.014 * s, 0.03 * s);                                  // neck
+  const skin = c.createRadialGradient(-0.012 * s, -0.09 * s, 0.003 * s, 0, -0.07 * s, 0.045 * s); skin.addColorStop(0, '#e2e6e2'); skin.addColorStop(0.6, '#b4bcb6'); skin.addColorStop(1, '#7f8882');
+  c.fillStyle = skin; c.beginPath(); c.moveTo(0, -0.112 * s); c.bezierCurveTo(0.038 * s, -0.112 * s, 0.042 * s, -0.07 * s, 0.026 * s, -0.055 * s);
+  c.bezierCurveTo(0.015 * s, -0.042 * s, 0.006 * s, -0.036 * s, 0, -0.036 * s); c.bezierCurveTo(-0.006 * s, -0.036 * s, -0.015 * s, -0.042 * s, -0.026 * s, -0.055 * s);
+  c.bezierCurveTo(-0.042 * s, -0.07 * s, -0.038 * s, -0.112 * s, 0, -0.112 * s); c.fill();
+  for (const sx of [-1, 1]) {
+    c.fillStyle = '#050608'; c.beginPath(); c.ellipse(sx * 0.014 * s, -0.068 * s, 0.013 * s, 0.007 * s, sx * 0.55, 0, 7); c.fill();
+    c.fillStyle = 'rgba(200,220,255,0.75)'; c.beginPath(); c.ellipse(sx * 0.011 * s, -0.071 * s, 0.003 * s, 0.0015 * s, sx * 0.55, 0, 7); c.fill();
+    c.fillStyle = '#5d655f'; c.beginPath(); c.arc(sx * 0.003 * s, -0.053 * s, 0.0012 * s, 0, 7); c.fill();          // slit nostrils
+  }
+  c.strokeStyle = '#5d655f'; c.lineWidth = 1; c.beginPath(); c.moveTo(-0.005 * s, -0.045 * s); c.lineTo(0.005 * s, -0.045 * s); c.stroke();
   c.restore();
   c.strokeStyle = 'rgba(255,255,255,0.75)'; c.lineWidth = 2; c.beginPath(); c.ellipse(0, -0.035 * s, 0.08 * s, 0.07 * s, 0, Math.PI * 1.15, Math.PI * 1.45); c.stroke();  // reflection
   c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke(dome);
