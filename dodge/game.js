@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '3.5';
+const VERSION = '3.6';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -128,11 +128,10 @@ const STAND = { 0:[.5,.2], 2:[.51,.19], 5:[.49,.19], 7:[.52,.2], 8:[.48,.2], 11:
   15:[.58,.53], 16:[.42,.53], 23:[.54,.55], 24:[.46,.55], 25:[.54,.72], 26:[.46,.72], 27:[.54,.88], 28:[.46,.88] };
 function keyPose(now) {
   const dt = Math.min(50, now - (keys.last || now)) / 1000; keys.last = now;
-  const run = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-  keys.x = clamp(keys.x - run * dt * 0.4, -0.75, 0.75);               // the camera picture is mirrored on screen
   let jump = 0;
-  if (keys.jumpAt != null) { const u = (now - keys.jumpAt) / 500; if (u < 1) jump = 0.088 * Math.sin(Math.PI * u); else if (u > 1.5) keys.jumpAt = null; }
-  const duck = keys.flat ? 0.75 : keys.duck && !jump ? 20 / 170 / 0.77 : 0, bodyH = 0.71;   // flat: head right down
+  if (keys.jumpAt != null) { const u = (now - keys.jumpAt) / 500; if (u < 1) jump = keys.jumpAmp * Math.sin(Math.PI * u); else if (u > 1.5) keys.jumpAt = null; }
+  const crouch = keys.jumpHold != null ? clamp((now - keys.jumpHold) / CROUCH_MS, 0, 1) * 0.12 : 0;   // knees bending, deeper the longer Jump is held
+  const duck = keys.flat ? 0.75 : Math.max(keys.duck && !jump ? 20 / 170 / 0.77 : 0, crouch), bodyH = 0.71;   // flat: head right down
   return Array.from({ length: 33 }, (_, i) => {
     const p = STAND[i]; if (!p) return { x:.5, y:.5, visibility:.1 };
     let px = p[0] + keys.x, py = p[1] + 0.15 - jump * bodyH;
@@ -141,8 +140,14 @@ function keyPose(now) {
     return { x: px, y: py, visibility: py > 1 ? 0.05 : .99 };
   });
 }
+const CROUCH_MS = 500;                                                   // holding Jump this long gives the deepest crouch and the highest jump
 function setKey(name, down) {
-  if (name === 'jump') { if (down && keys.jumpAt == null) keys.jumpAt = performance.now(); return; }
+  if (name === 'jump') {
+    const now = performance.now();
+    if (down) { if (keys.jumpHold == null && keys.jumpAt == null) keys.jumpHold = now; }
+    else if (keys.jumpHold != null) { const f = clamp((now - keys.jumpHold) / CROUCH_MS, 0.08, 1); keys.jumpAmp = 0.025 + 0.11 * f; keys.jumpAt = now; keys.jumpHold = null; }   // spring up
+    return;
+  }
   keys[name] = down;
 }
 const KEYMAP = { ArrowLeft:'left', ArrowRight:'right', ArrowDown:'duck', ' ':'jump', Spacebar:'jump', ArrowUp:'jump' };
@@ -154,12 +159,12 @@ for (const type of ['keydown', 'keyup']) window.addEventListener(type, e => {
   if (!e.repeat || type === 'keyup') setKey(KEYMAP[e.key], type === 'keydown');
 });
 function setKeyMode(on) {
-  keyMode = on; Object.assign(keys, { left:false, right:false, duck:false, flat:false, jumpAt:null, x:0, last:0, lastDownTap:0 }); lm = null;
+  keyMode = on; Object.assign(keys, { left:false, right:false, duck:false, flat:false, jumpAt:null, jumpHold:null, jumpAmp:0.08, x:0, last:0, lastDownTap:0 }); lm = null;
   $('touchPad').hidden = !on; $('handsHint').hidden = on;
 }
 for (const b of document.querySelectorAll('#touchPad button')) {
-  const name = b.dataset.k, on = e => { e.preventDefault(); b.classList.add('on'); setKey(name, true); }, off = e => { e.preventDefault(); b.classList.remove('on'); setKey(name, false); };
-  b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off); b.addEventListener('pointerleave', off);
+  const name = b.dataset.k, on = e => { e.preventDefault(); try { b.setPointerCapture(e.pointerId); } catch (err) { /* older browsers */ } b.classList.add('on'); setKey(name, true); }, off = e => { e.preventDefault(); b.classList.remove('on'); setKey(name, false); };
+  b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointercancel', off);   // (held until the finger lifts, even if it slides off)
   b.addEventListener('contextmenu', e => e.preventDefault());
 }
 
@@ -227,7 +232,8 @@ function updateMotion(now) {
     if (now - j.t0 < 300) j.peak = Math.max(j.peak, Math.min(motion.up * JUMP_GAIN, PEAK_MAX) * charH * (j.boost ? 2.6 : 1));   // super jump: 2.6 times as high
     const u = (now - j.t0) / (AIR_TIME * 1000 * (j.boost ? 1.61 : 1));                                                       // (and longer in the air)
     motion.flip = j.boost && u < 1 ? u : 0;                                // super jumps are somersaults
-    if (u >= 1) { motion.jump = null; motion.lift = 0; }
+    motion.jumpU = u;
+    if (u >= 1) { motion.jump = null; motion.lift = 0; motion.landAt = now; motion.jumpU = null; }
     else motion.lift = 4 * j.peak * u * (1 - u);
   }
   if (!motion.jump) motion.flip = 0;
@@ -257,6 +263,13 @@ function updateCharX(now) {
   motion.run += Math.abs(motion.vx) / (charH * 0.12);           // leg cycle for the running animation
 }
 
+// No-camera mode: the arrow keys or buttons move the man directly, at a steady speed (a screen-width in 3 s).
+function keyCharX(dt) {
+  const run = (keys.right ? 1 : 0) - (keys.left ? 1 : 0), before = charX, v = W / 3000;
+  charX = clamp(charX + run * v * dt, W * 0.06, W * 0.94);
+  motion.vx = charX - before; if (motion.jump && motion.jump.vx === undefined) motion.jump.vx = run * v;
+  motion.run += Math.abs(motion.vx) / (charH * 0.12);
+}
 // Resting height and size drift a little as people shuffle; follow slowly while they stand normally.
 function driftStance() {
   if (Math.abs(motion.up) > 0.015 || !seen(P.lSh, P.rSh)) return;
@@ -268,14 +281,17 @@ function driftStance() {
 // squatting for a duck); the head follows the player's tilt and the arms copy the player's when visible.
 function buildBody() {
   const s = charH, foot = groundY - motion.lift, d = motion.duck;
+  // knees bent as he springs off (straightening in the first part of the jump) and as he lands (absorbing it)
+  const ju = motion.jumpU, sinceLand = performance.now() - (motion.landAt || -1e9);
+  const bend = ju != null ? (ju < 0.14 ? 1 - ju / 0.14 : ju > 0.86 ? (ju - 0.86) / 0.14 : 0) : clamp(1 - sinceLand / 200, 0, 1);
   const air = clamp(motion.lift / (s * 0.3), 0, 1);
   const P2 = (x, y) => ({ x: charX + x * s, y: foot - y * s });
   const run = Math.abs(motion.vx) > 0.6 && air < 0.1 ? Math.sin(motion.run) : 0;
   const k = {
     lSh: P2(-0.12, 0.74 - d), rSh: P2(0.12, 0.74 - d),
-    lHip: P2(-0.08, 0.45 - d * 0.75), rHip: P2(0.08, 0.45 - d * 0.75),
-    lKnee: P2(-0.09 - d * 0.35 + run * 0.05, 0.23 - d * 0.25 + air * 0.08 + Math.max(0, run) * 0.05),
-    rKnee: P2(0.09 + d * 0.35 - run * 0.05, 0.23 - d * 0.25 + air * 0.08 + Math.max(0, -run) * 0.05),
+    lHip: P2(-0.08, 0.45 - d * 0.75 - bend * 0.05), rHip: P2(0.08, 0.45 - d * 0.75 - bend * 0.05),
+    lKnee: P2(-0.09 - d * 0.35 + run * 0.05 - bend * 0.06, 0.23 - d * 0.25 + air * 0.08 + Math.max(0, run) * 0.05 - bend * 0.04),
+    rKnee: P2(0.09 + d * 0.35 - run * 0.05 + bend * 0.06, 0.23 - d * 0.25 + air * 0.08 + Math.max(0, -run) * 0.05 - bend * 0.04),
     lAnk: P2(-0.09 + air * 0.05 + run * 0.08, 0.03 + air * 0.12 + Math.max(0, run) * 0.06),   // tucked together in a jump
     rAnk: P2(0.09 - air * 0.05 - run * 0.08, 0.03 + air * 0.12 + Math.max(0, -run) * 0.06),
     head: { ...P2(0, 0.86 - d), r: s * 0.095, tilt: 0 },
@@ -325,6 +341,13 @@ function shade(hex, f) {
 function drawHead(c, p, h, mood = 'neutral', now = 0, damage = 0) {
   c.save(); c.translate(h.x, h.y); c.rotate(h.tilt);
   const r = h.r, img = faceImage(p);
+  if (BACK_VIEW) {                                                       // the back of his head: ears and hair
+    for (const sx of [-1, 1]) { c.fillStyle = shade(p.skin, -0.08); c.beginPath(); c.ellipse(sx * r * 0.86, r * 0.05, r * 0.16, r * 0.26, 0, 0, 7); c.fill(); }
+    c.fillStyle = shade(p.skin, -0.05); c.beginPath(); c.ellipse(0, r * 0.04, r * 0.84, r, 0, 0, 7); c.fill();
+    const hg = c.createRadialGradient(0, -r * 0.3, r * 0.1, 0, 0, r); hg.addColorStop(0, '#5b4636'); hg.addColorStop(1, '#3d2e24');
+    c.fillStyle = hg; c.beginPath(); c.ellipse(0, -r * 0.05, r * 0.84, r * 0.88, 0, 0, 7); c.fill();
+    c.restore(); return;
+  }
   if (mood === 'pain') c.translate(Math.sin(now / 28) * r * 0.08, 0);                    // wince
   if (img) {
     c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2);
@@ -559,6 +582,7 @@ function drawCharacter(c, k, p, hurt, mood = 'neutral', now = performance.now(),
   // collar
   c.fillStyle = shade(shirt, 0.2); c.strokeStyle = OUTLINE; c.lineWidth = 1.5;
   for (const sx of [-1, 1]) { c.beginPath(); c.moveTo(neck.x + sx * s * 0.03, neck.y - s * 0.012); c.lineTo(neck.x + sx * s * 0.055, neck.y + s * 0.005); c.lineTo(neck.x + sx * s * 0.005, neck.y + s * 0.04); c.closePath(); c.fill(); c.stroke(); }
+  if (BACK_VIEW) { c.fillStyle = tg; c.fill(torso); c.strokeStyle = OUTLINE; c.lineWidth = 2.5; c.stroke(torso); }   // seen from behind: a plain shirt back
   // belt with a buckle
   c.fillStyle = '#2b1d14'; c.beginPath(); c.moveTo(lh.x, lh.y - s * 0.03); c.lineTo(rh.x, rh.y - s * 0.03); c.lineTo(rh.x, rh.y); c.lineTo(lh.x, lh.y); c.closePath(); c.fill(); c.stroke();
   c.strokeStyle = '#d4b45a'; c.lineWidth = 2; c.strokeRect((lh.x + rh.x) / 2 - s * 0.015, (lh.y + rh.y) / 2 - s * 0.027, s * 0.03, s * 0.024);
@@ -1303,15 +1327,16 @@ function squishAmount(now) {
 function manOps(k, now) {
   const ops = [];
   if (G.lay > 0.01) { const px = k.hip.x, py = groundY; ops.push(['t', px, py - charH * 0.07 * Math.sin(G.lay)], ['r', G.lay * G.laySide], ['t', -px, -py]); }
-  if (motion.flip > 0) {                                                 // a full forward roll in the air
-    const e = motion.flip < 0.5 ? 2 * motion.flip * motion.flip : 1 - 2 * (1 - motion.flip) * (1 - motion.flip), cx = k.hip.x, cy = groundY - motion.lift - charH * 0.45;
-    const dir = Math.sign((motion.jump && motion.jump.vx) || 1);
-    ops.push(['t', cx, cy], ['r', dir * e * Math.PI * 2], ['t', -cx, -cy]);
+  if (motion.flip > 0) {                                                 // a front flip, towards the camera: seen end-on, the body
+    const cs = flipCos(), cx = k.hip.x, cy = groundY - motion.lift - charH * 0.45;   // shortens, turns upside down (back to us), comes round
+    ops.push(['t', cx, cy], ['s', 1, Math.abs(cs) < 0.1 ? (cs < 0 ? -0.1 : 0.1) : cs], ['t', -cx, -cy]);
   }
   const sq = squishAmount(now);
   if (sq) { const px = k.hip.x; ops.push(['t', px, groundY], ['s', 1 + 0.3 * sq, 1 - 0.65 * sq], ['t', -px, -groundY]); }
   return ops;
 }
+function flipCos() { const f = motion.flip, e = f < 0.5 ? 2 * f * f : 1 - 2 * (1 - f) * (1 - f); return Math.cos(e * Math.PI * 2); }
+let BACK_VIEW = false;                                                     // drawing him from behind (mid-somersault)
 function applyOps(c, ops) { for (const [o, a, b] of ops) { if (o === 't') c.translate(a, b); else if (o === 'r') c.rotate(a); else c.scale(a, b); } }
 function txK(k, ops) {
   if (!ops.length) return k;
@@ -1585,7 +1610,7 @@ function gameFrame(now, dt) {
   else if (G.state !== 'off' && lm) {
     if (G.squish && now - G.squish.at > 1400) G.squish = null;
     const held = G.knock || G.carry || G.squish;                                    // knocked down or carried off: the player's moves don't count
-    if (!lost && !held) { updateMotion(now); updateCharX(now); driftStance(); }
+    if (!lost && !held) { updateMotion(now); if (keyMode) keyCharX(dt); else updateCharX(now); driftStance(); }
     if (held) { motion.jump = null; motion.flip = 0; motion.duck = 0; if (!G.carry) motion.lift = 0; }
     if (G.carry && G.state === 'play') updateCarry(now, dt);
     if (G.flat) motion.duck = 0;
@@ -1659,10 +1684,11 @@ function gameFrame(now, dt) {
     ctx.save();
     if (manInFront) ctx.translate(0, charH * 0.04);
     if (G.stagger && now - G.stagger.at < 700) { const px = k.hip.x, a = Math.sin((now - G.stagger.at) / 60) * 0.07 * G.stagger.amp * (1 - (now - G.stagger.at) / 700); ctx.translate(px, groundY); ctx.rotate(a); ctx.translate(-px, -groundY); }   // staggering as the ground shakes
-    const ops = manOps(k, now); applyOps(ctx, ops);
+    const ops = manOps(k, now); applyOps(ctx, ops); BACK_VIEW = motion.flip > 0 && flipCos() < 0;
     const sq = squishAmount(now);
     drawCharacter(ctx, k, selected(), now < G.safeUntil && !G.carry, mood, now, G.state === 'play' || G.state === 'ending' ? LIVES - G.lives : 0);
     if (now < (G.headSplat || 0)) drawSplat(ctx, k.head.x + k.head.r * 0.25, k.head.y - k.head.r * 0.75, charH, clamp((G.headSplat - now) / 800, 0, 1), true);
+    BACK_VIEW = false;
     if (sq > 0.05) {                                                    // accordion pleats
       ctx.strokeStyle = `rgba(30,25,40,${0.45 * sq})`; ctx.lineWidth = 2;
       for (let i = 1; i < 9; i++) { const y = groundY - charH * 0.96 * i / 9; ctx.beginPath(); for (let j = 0; j <= 6; j++) { const x = k.hip.x - charH * 0.15 + j * charH * 0.05; j ? ctx.lineTo(x, y + (j % 2 ? -1 : 1) * charH * 0.025) : ctx.moveTo(x, y); } ctx.stroke(); }
