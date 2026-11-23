@@ -28,11 +28,12 @@ export const HAZARDS = {
   arrow:    { lane:'air', scale:1.3, w:0.52, h:0.07, speed:7.8,  draw:drawArrow },
   ufo:      { lane:'ufo', scale:1.5, w:0.5, h:0.24, speed:0.5, draw:drawUfo },
   tomahawk: { lane:'air', scale:1.0, w:0.33, h:0.14, speed:2.2, arc:true, spins:true, shaped:true, draw:drawTomahawk },   // thrown, spinning end over end
+  poop:     { lane:'sky', scale:1, w:0.07, h:0.09, speed:1.3, noPick:true, splat:true, draw:drawPoop },   // the eagle's (only from an eagle)
   pogo:     { lane:'bounce', scale:1.25, w:0.3, h:0.7, speed:1.0, pogo:true, draw:drawPogo },   // a kid bouncing across on a pogo stick
   boomerang:{ lane:'air', scale:1.3, w:0.34, h:0.12, speed:2.4, returns:true, shaped:true, draw:drawBoomerang },        // out and back, spinning flat
 };
 export const BY_LANE = { sky:[], ground:[], air:[], ufo:[], bounce:[] };
-for (const [k, d] of Object.entries(HAZARDS)) if (!d.vehicle) BY_LANE[d.lane].push(k);
+for (const [k, d] of Object.entries(HAZARDS)) if (!d.vehicle && !d.noPick) BY_LANE[d.lane].push(k);
 BY_LANE.ground.unshift('car');
 export const VEHICLE_KINDS = Object.keys(VEHICLES);
 
@@ -337,9 +338,12 @@ function drawEagle(c, s, t, hz) {
   // body
   const body = c.createRadialGradient(0, -0.02 * s, 0.01 * s, 0, 0, 0.13 * s); body.addColorStop(0, '#6e4a2b'); body.addColorStop(1, '#2e1d0f');
   c.fillStyle = body; c.beginPath(); c.ellipse(0, 0, 0.13 * s, 0.045 * s, -0.05, 0, 7); c.fill(); c.stroke();
-  // talons tucked underneath
-  c.strokeStyle = '#f5b400'; c.lineWidth = 0.012 * s; c.lineCap = 'round';
-  c.beginPath(); c.moveTo(-0.02 * s, 0.035 * s); c.lineTo(-0.06 * s, 0.055 * s); c.moveTo(0.0, 0.035 * s); c.lineTo(-0.04 * s, 0.06 * s); c.stroke();
+  // talons: tucked up under the tail in level flight, swung down and forward, wide open, as it dives
+  const tk = hz && hz.talon || 0;
+  if (tk < 0.3) {
+    c.strokeStyle = '#f5b400'; c.lineWidth = 0.012 * s; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(-0.02 * s, 0.035 * s); c.lineTo(-0.06 * s, 0.055 * s); c.moveTo(0.0, 0.035 * s); c.lineTo(-0.04 * s, 0.06 * s); c.stroke();
+  } else talonsOut(c, s, tk);
   // head: white, with a hooked yellow beak and a fierce eye
   const head = c.createRadialGradient(0.12 * s, -0.035 * s, 0.005 * s, 0.13 * s, -0.025 * s, 0.05 * s); head.addColorStop(0, '#ffffff'); head.addColorStop(1, '#ced4da');
   c.fillStyle = head; c.strokeStyle = INK; c.lineWidth = 1.2; c.beginPath(); c.ellipse(0.13 * s, -0.025 * s, 0.05 * s, 0.04 * s, 0.1, 0, 7); c.fill(); c.stroke();
@@ -351,7 +355,7 @@ function drawEagle(c, s, t, hz) {
   wing(false);
   c.fillStyle = '#f2c230'; c.beginPath(); c.ellipse(0.168 * s, -0.033 * s, 0.008 * s, 0.009 * s, 0, 0, 7); c.fill();   // cere
   c.fillStyle = '#5a4300'; c.beginPath(); c.ellipse(0.175 * s, -0.031 * s, 0.003 * s, 0.002 * s, 0, 0, 7); c.fill();   // nostril
-  c.fillStyle = '#111'; for (const [x, y] of [[-0.062, 0.057], [-0.042, 0.062]]) { c.beginPath(); c.arc(x * s, y * s, 0.006 * s, 0, 7); c.fill(); }   // claws
+  if (tk < 0.3) { c.fillStyle = '#111'; for (const [x, y] of [[-0.062, 0.057], [-0.042, 0.062]]) { c.beginPath(); c.arc(x * s, y * s, 0.006 * s, 0, 7); c.fill(); } }   // claws
 }
 // A missile: a rounded metal body shaded like a cylinder, a red nose cone, panel lines and rivets, swept
 // fins, and a roaring exhaust flame with a smoke trail.
@@ -531,6 +535,44 @@ function drawPogo(c, s, t, hz) {
   c.fillStyle = '#fff'; c.fillRect(hx + r * 0.55, hy + r * 0.52, r * 0.35, r * 0.08);
   c.fillStyle = '#d9a47e'; c.beginPath(); c.ellipse(hx - r * 0.15, hy + r * 0.12, r * 0.15, r * 0.22, 0, 0, 7); c.fill();   // ear
   c.restore();
+  c.restore();
+}
+
+// An eagle's legs thrust down and forward for the strike: feathered thighs, scaly yellow legs, and open feet
+// with three toes forward and one back, each ending in a black hooked claw. k: 0 tucked .. 1 fully out.
+function talonsOut(c, s, k) {
+  for (const [dx, far] of [[-0.02, true], [0, false]]) {
+    const hip = [-0.01 + dx, 0.03], ank = [0.0 + dx + 0.03 * k, 0.07 + 0.035 * k], foot = [0.03 + dx + 0.05 * k, 0.085 + 0.055 * k];
+    c.fillStyle = far ? '#2e1d0f' : '#4a2f18';                                       // feathered thigh
+    c.beginPath(); c.ellipse((hip[0] + ank[0]) / 2 * s, (hip[1] + ank[1]) / 2 * s, 0.018 * s, 0.03 * s, -0.5 * k, 0, 7); c.fill();
+    c.strokeStyle = far ? '#c99500' : '#f5b400'; c.lineWidth = 0.011 * s; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(ank[0] * s, ank[1] * s); c.lineTo(foot[0] * s, foot[1] * s); c.stroke();
+    c.strokeStyle = 'rgba(120,80,0,0.6)'; c.lineWidth = 1;                         // scales
+    for (let i = 1; i < 4; i++) { const u = i / 4, x = ank[0] + (foot[0] - ank[0]) * u, y = ank[1] + (foot[1] - ank[1]) * u; c.beginPath(); c.moveTo((x - 0.005) * s, y * s); c.lineTo((x + 0.005) * s, y * s); c.stroke(); }
+    for (const [a, l] of [[-0.5, 0.04], [0.1, 0.045], [0.7, 0.038], [2.6, 0.028]]) {  // toes spread open
+      const ang = a * k + (1 - k) * 1.2, tx = foot[0] + Math.cos(ang) * l, ty = foot[1] + Math.sin(ang) * l;
+      c.strokeStyle = far ? '#c99500' : '#f5b400'; c.lineWidth = 0.009 * s;
+      c.beginPath(); c.moveTo(foot[0] * s, foot[1] * s); c.lineTo(tx * s, ty * s); c.stroke();
+      c.strokeStyle = '#111'; c.lineWidth = 0.006 * s;                              // hooked claw
+      c.beginPath(); c.moveTo(tx * s, ty * s); c.quadraticCurveTo((tx + Math.cos(ang) * 0.015) * s, (ty + Math.sin(ang) * 0.015) * s, (tx + Math.cos(ang + 1.6) * 0.012) * s, (ty + Math.sin(ang + 1.6) * 0.012) * s); c.stroke();
+    }
+  }
+}
+// The eagle's poop: a white splodge with a grey centre, stretched out as it falls.
+function drawPoop(c, s) {
+  const g = c.createRadialGradient(-0.008 * s, -0.01 * s, 0, 0, 0, 0.035 * s); g.addColorStop(0, '#ffffff'); g.addColorStop(0.7, '#e9ecef'); g.addColorStop(1, '#adb5bd');
+  c.fillStyle = g; c.beginPath(); c.moveTo(0, -0.045 * s); c.quadraticCurveTo(0.03 * s, 0.0, 0.0, 0.03 * s); c.quadraticCurveTo(-0.03 * s, 0.0, 0, -0.045 * s); c.fill();
+  c.fillStyle = 'rgba(90,90,80,0.6)'; c.beginPath(); c.ellipse(0.002 * s, 0.008 * s, 0.009 * s, 0.007 * s, 0, 0, 7); c.fill();
+}
+export function drawSplat(c, x, y, s, alpha, onHead = false) {
+  c.save(); c.globalAlpha = alpha; c.translate(x, y);
+  c.fillStyle = '#f8f9fa'; c.strokeStyle = 'rgba(120,120,110,0.6)'; c.lineWidth = 1;
+  c.beginPath();
+  for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2, r = (i % 2 ? 0.045 : 0.03) * s; c.lineTo(Math.cos(a) * r, Math.sin(a) * r * (onHead ? 0.8 : 0.3)); }
+  c.closePath(); c.fill(); c.stroke();
+  c.fillStyle = 'rgba(90,90,80,0.55)'; c.beginPath(); c.ellipse(0, 0, 0.012 * s, 0.006 * s, 0, 0, 7); c.fill();
+  c.fillStyle = '#f8f9fa'; for (const [dx, dy] of [[0.06, -0.005], [-0.055, 0.004], [0.035, 0.01]]) { c.beginPath(); c.arc(dx * s, dy * s * (onHead ? 2 : 1), 0.006 * s, 0, 7); c.fill(); }
+  if (onHead) for (const dx of [-0.02, 0.015]) { c.beginPath(); c.ellipse(dx * s, 0.035 * s, 0.006 * s, 0.014 * s, 0, 0, 7); c.fill(); }   // drips
   c.restore();
 }
 

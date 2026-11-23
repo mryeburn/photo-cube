@@ -171,7 +171,7 @@ export const VEHICLES = {
     colours:['#a8101a', '#eef0f2', '#1d4e89', '#8e959c', '#2b2d31'] },
   jeep:    { name:'jeep', w:0.98, h:0.46, mul:1.0, wheels:[[-0.29, 0.095], [0.3, 0.095]], R:0.11, boxes:[[-0.34, 0.39, 0.2], [-0.34, 0.11, 0.39]], rim:'jeep',
     colours:['#4b5320', '#e8590c', '#1b1d21', '#f1f3f5', '#b02a2a', '#1864ab'] },
-  pickup:  { name:'old pickup', w:1.25, h:0.564, size:0.9, tall:1.2, mul:1.0, wheels:[[-0.36, 0.1], [0.38, 0.1]], R:0.102, boxes:[[-0.47, 0.47, 0.3], [0.02, 0.2, 0.45]], rim:'rusty',
+  pickup:  { name:'old pickup', w:1.25, h:0.564, size:0.855, tall:1.2, mul:1.0, wheels:[[-0.36, 0.1], [0.38, 0.1]], R:0.102, boxes:[[-0.47, 0.47, 0.3], [0.02, 0.2, 0.45]], rim:'rusty',
     colours:['#5b7da0', '#8c3b32', '#a68a5b', '#56704a'] },
   beetle:  { name:'old Beetle', w:0.9, h:0.39, mul:0.85, wheels:[[-0.25, 0.07], [0.27, 0.07]], R:0.088, boxes:[[-0.31, 0.31, 0.2], [-0.22, 0.1, 0.33]], rim:'hubcap',
     colours:['#8aa37a', '#c9b98a', '#7d97b0'] },

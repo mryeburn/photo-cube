@@ -2,8 +2,8 @@
 // step aside from things falling from the sky, jump over things on the ground and duck under things
 // flying at head height.
 import { FilesetResolver, PoseLandmarker, FaceDetector } from './lib/mediapipe/vision_bundle.mjs';
-import { HAZARDS, BY_LANE, VEHICLES, VEHICLE_KINDS, drawHazard, sizeOf, drawWreck, preloadVehicles } from './hazards.js';
-import { createVoice, loadSamples, scream, groan, fire, laserCharge, laserShot, villainVoice, swoosh, pow, knockout } from './hazard-sounds.js';
+import { HAZARDS, BY_LANE, VEHICLES, VEHICLE_KINDS, drawHazard, sizeOf, drawWreck, drawSplat, preloadVehicles } from './hazards.js';
+import { createVoice, loadSamples, splat, scream, groan, fire, laserCharge, laserShot, villainVoice, swoosh, pow, knockout } from './hazard-sounds.js';
 import { drawVillain } from './villain.js';
 import { drawScenery as paintScenery } from './scenery.js';
 
@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '3.0';
+const VERSION = '3.1';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -562,6 +562,10 @@ function circleHitsBox(cir, hz) {
     const s = charH * HAZARDS.pogo.scale; return distToSegment(cir, hz.x, hz.y + 0.35 * s, hz.x, hz.y - 0.28 * s) < cir.r + 0.075 * s;
   }
   const r = HAZARDS[hz.kind].hitR;
+  if (hz.kind === 'eagle' && hz.talon > 0.5) {                      // its open talons, reaching down and forward
+    const s = charH * HAZARDS.eagle.scale, k = hz.talon, lx = hz.dir * (0.05 + 0.05 * k) * s, ly = (0.09 + 0.05 * k) * s, cs = Math.cos(hz.spin), sn = Math.sin(hz.spin);
+    if (Math.hypot(cir.x - (hz.x + lx * cs - ly * sn), cir.y - (hz.y + lx * sn + ly * cs)) < cir.r + 0.035 * charH) return true;
+  }
   if (r) return Math.hypot(cir.x - hz.x, cir.y - hz.y) < r * charH + cir.r;   // round hit area (a diving plane)
   // A little forgiving at the edges. Things on the ground are judged by their solid middle (a car's
   // bonnet and boot are lower than its roof), so a well-timed jump clears them.
@@ -597,7 +601,7 @@ function startGame() {
   audio(); resize(); silenceAll();
   try { preloadVehicles(charH); } catch (e) { console.error(e); }
   stopVillain();
-  Object.assign(G, { sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, stats:{ jumps:0, ducks:0, steps:0 },
+  Object.assign(G, { sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, headSplat:0, stats:{ jumps:0, ducks:0, steps:0 },
     phaseStart:performance.now(), lastTick:-1, bannerUntil:0, shake:0, lastSk:null });
   motion.airborne = false; motion.ducking = false;
   $('scoreNum').textContent = '0'; $('timeNum').textContent = '0:00'; renderHearts();
@@ -637,13 +641,13 @@ function spawn(lane, now, kind = null, aimed = false) {
     hz.vx = hz.dir * sp; hz.vy = 0; hz.shots = 0; hz.nextShot = now + 1400 + Math.random() * 800; hz.aim = null;
     const t = elapsed(now); hz.maxShots = t < 120 ? 1 : t < 180 ? 2 : 3;   // more shots per visit as the game goes on
   } else if (lane === 'bounce') {
-    // A kid on a pogo stick bounces across the screen in 3 or 4 big hops, each one rising to about two-thirds
-    // of the way up the screen. One of the landings is aimed at where the player is standing: step aside.
+    // A kid on a pogo stick bounces straight across the screen in 3 or 4 big hops, each one rising to about
+    // two-thirds of the way up the screen. He doesn't aim: watch his hops and step out of the way.
     hz.dir = Math.random() < 0.5 ? 1 : -1;
-    const A = groundY * POGO_RISE, T = 1500 / Math.sqrt(speedUp(now)), n = Math.random() < 0.5 ? 3 : 4;
+    const A = groundY * POGO_RISE, T = 1500 / Math.sqrt(speedUp(now)) * (0.9 + Math.random() * 0.2), n = Math.random() < 0.5 ? 3 : 4;
     const x0 = hz.dir > 0 ? -w / 2 : W + w / 2, x1 = hz.dir > 0 ? W + w / 2 : -w / 2;
     hz.vx = hz.dir * Math.abs(x1 - x0) / (n * T); hz.g = 8 * A / (T * T); hz.hopV = 4 * A / T;
-    const tau = T - (Math.abs(charX - x0) / Math.abs(hz.vx)) % T;     // how far into a hop it is as it appears
+    const tau = Math.random() * T;                                   // how far into a hop he is as he appears
     hz.x = x0; hz.y = groundY - POGO_FOOT * s - 4 * A * tau * (T - tau) / (T * T); hz.vy = -4 * A * (T - 2 * tau) / (T * T);
   } else if (lane === 'sky') {
     // Falling things start slowly and speed up under gravity.
@@ -711,38 +715,95 @@ function swoopPath(hz, sp) {
   if (up0(charX) < W * 0.35) dir = -dir;                             // come from the far side, so there's room to dive
   const X = u => dir > 0 ? u : W - u, up = up0(charX);
   const top = H * (0.02 + Math.random() * 0.08), yh = groundY - charH * 0.93, yl = groundY - charH * 0.15, mid = y => (top + y) / 2;
+  const ys = groundY - charH * 1.1;                                   // pulling out of a strike: its open talons reach down to head height
   const move = window.__dgMove || ['dip', 'level', 'low', 'back'][Math.floor(Math.random() * 4)]; hz.move = move;
   const pts = {
-    dip:   [[-0.08 * W, top], [up - 0.22 * W, mid(yh)], [up, yh], [up + 0.22 * W, mid(yh)], [Math.max(1.12 * W, up + 0.4 * W), top]],
+    dip:   [[-0.08 * W, top], [up - 0.22 * W, mid(ys)], [up, ys], [up + 0.22 * W, mid(ys)], [Math.max(1.12 * W, up + 0.4 * W), top]],
     level: [[-0.08 * W, top], [up - 0.3 * W, mid(yh)], [up - 0.12 * W, yh], [up + 0.1 * W, yh], [Math.max(1.15 * W, up + 0.3 * W), yh]],
     low:   [[-0.08 * W, top], [up - 0.3 * W, mid(yl)], [up - 0.12 * W, yl], [up + 0.1 * W, yl], [Math.max(1.15 * W, up + 0.3 * W), yl]],
-    back:  [[-0.08 * W, top], [up - 0.25 * W, mid(yh)], [up, yh], [up - 0.03 * W, yh - charH * 0.4], [up - 0.2 * W, mid(yh)], [-0.15 * W, top]],
+    back:  [[-0.08 * W, top], [up - 0.25 * W, mid(ys)], [up, ys], [up - 0.03 * W, ys - charH * 0.4], [up - 0.2 * W, mid(ys)], [-0.15 * W, top]],
   }[move];
-  hz.dir = dir; hz.speed = sp; setPath(hz, pts.map(([u, y]) => [X(u), y]), move === 'low' ? yl : yh); hz.flapPh = 0;
+  hz.dir = dir; hz.speed = sp; setPath(hz, pts.map(([u, y]) => [X(u), y]), move === 'low' ? yl : move === 'level' ? yh : ys); hz.flapPh = 0;
+  hz.willPoop = window.__dgPoop ?? Math.random() < 0.5;               // half try; about half of those find a fair moment: ~1 in 4 (tests can choose)
 }
 // The boomerang comes in at head height from one side, travels half or most of the way across, slows and
 // swings round, and goes back out the side it came from: at head height again (duck, duck) or low along the
 // ground (duck, then jump).
 function boomerangPath(hz, sp) {
+  // Five flights, picked at random so the player can't predict it:
+  //   back-high  out at head height, turns round and comes back at head height (duck, duck)
+  //   back-low   out at head height, turns round and comes back skimming the floor (duck, then jump)
+  //   hover      hangs in mid-air spinning for 1.5 to 3 s (away from the player), then carries on
+  //   swoop      carries on the same way, diving in a curve down to the floor and either staying low or
+  //              sweeping back up
+  //   climb      carries on the same way, climbing in a curve above head height and coming back down
+  // Fair: its height is settled within a quarter of the screen (about 3/4 s) either side of the player, so it
+  // never changes height right on top of them.
+  const flights = ['back-high', 'back-low', 'hover', 'swoop', 'climb'];
+  let flight = window.__dgFlight || (window.__dgLow != null ? (window.__dgLow ? 'back-low' : 'back-high') : flights[Math.floor(Math.random() * 5)]);
   let dir = Math.random() < 0.5 ? 1 : -1;
-  if ((dir > 0 ? charX : W - charX) > W * 0.6) dir = -dir;           // come from the side with room to turn beyond the player
+  const yh = groundY - charH * TOMAHAWK_AT, yl = groundY - charH * 0.14, yTop = yh - charH * 0.7, Z = W * 0.25;
+  const back = flight.startsWith('back');
+  if (back && (dir > 0 ? charX : W - charX) > W * (flight === 'back-low' ? 0.5 : 0.6)) dir = -dir;   // room to turn beyond the player
   const X = u => dir > 0 ? u : W - u, up = dir > 0 ? charX : W - charX;
-  // half or most of the way across, but always swinging round well past the player (never on top of them)
-  const D = Math.min(W * 0.9, Math.max((Math.random() < 0.5 ? 0.5 : 0.8) * W, up + W * 0.22)), yh = groundY - charH * TOMAHAWK_AT, yl = groundY - charH * 0.14;
-  hz.low = window.__dgLow ?? Math.random() < 0.5;   // (tests can choose)
-  const pts = hz.low
-    ? [[-0.1 * W, yh], [D - 0.15 * W, yh], [D, yh + (yl - yh) * 0.4], [D - 0.15 * W, yl], [-0.15 * W, yl]]
-    : [[-0.1 * W, yh], [D - 0.15 * W, yh], [D, yh - charH * 0.12], [D - 0.15 * W, yh - charH * 0.2], [D - 0.35 * W, yh], [-0.15 * W, yh]];
-  hz.dir = dir; hz.speed = sp; hz.turnX = X(D); hz.passSide = Math.sign(X(-0.1 * W) - charX); hz.passes = 0;
-  setPath(hz, pts.map(([u, y]) => [X(u), y]), hz.low ? yl : yh);
+  let pts, turnU = 1e9, lowest = yl;                                // the lowest the curve may go
+  if (back) {
+    // turns a third, half or most of the way across, but always well past the player
+    const need = up + (flight === 'back-low' ? W * 0.42 : W * 0.22);
+    const D = Math.min(W * 0.92, Math.max([0.33, 0.5, 0.8][Math.floor(Math.random() * 3)] * W, need));
+    pts = flight === 'back-low'
+      ? [[-0.1 * W, yh], [D - 0.15 * W, yh], [D, yh + (yl - yh) * 0.4], [D - 0.15 * W, yl], [-0.15 * W, yl]]
+      : [[-0.1 * W, yh], [D - 0.15 * W, yh], [D, yh - charH * 0.12], [D - 0.15 * W, yh - charH * 0.2], [D - 0.35 * W, yh], [-0.15 * W, yh]];
+    turnU = D; if (flight === 'back-high') lowest = yh;
+  } else if (flight === 'hover') {
+    // hangs somewhere at least a quarter of the screen from the player
+    let uh = W * (0.15 + Math.random() * 0.7);
+    if (Math.abs(uh - up) < Z) uh = up + (up < W / 2 ? Z + Math.random() * W * 0.15 : -Z - Math.random() * W * 0.15);
+    uh = clamp(uh, W * 0.1, W * 0.9);
+    pts = [[-0.1 * W, yh], [uh, yh], [1.15 * W, yh]];
+    hz.hoverU = uh; hz.hoverLeft = 1500 + Math.random() * 1500; turnU = uh; lowest = yh;
+  } else {
+    // a curve (down to the floor, or up above head height) in whichever stretch away from the player has room
+    const passLow = flight === 'swoop' && Math.random() < 0.5;            // swoop: stays low past the player half the time
+    const hp = passLow ? yl : (flight === 'climb' && Math.random() < 0.5 ? yl : yh), extreme = flight === 'swoop' ? yl : yTop;
+    const before = [-0.1 * W, up - Z], after = [up + Z, 1.15 * W];
+    if (flight === 'climb' && hp === yh) lowest = yh;
+    if (passLow) {
+      // dive to the floor before reaching the player, skim past low, and out
+      const end = Math.max(up - Z, -0.05 * W);
+      pts = [[-0.1 * W, yh], [Math.max(-0.08 * W, end - 0.3 * W), yh], [end, yl], [1.15 * W, yl]];
+    } else {
+      const lenB = before[1] - before[0], lenA = after[1] - after[0];
+      const [r0, r1] = lenB >= lenA ? before : after, c = (r0 + r1) / 2, half = Math.min(0.15 * W, (r1 - r0) / 2 - 0.02 * W);
+      const startY = lenB >= lenA ? yh : hp;                             // height on the way in, before the player
+      pts = lenB >= lenA
+        ? [[-0.1 * W, yh], [c - half, yh], [c, extreme], [c + half, hp], [1.15 * W, hp]]
+        : [[-0.1 * W, hp], [c - half, hp], [c, extreme], [c + half, hp], [1.15 * W, hp]];
+      if (lenB < lenA) pts[0][1] = startY;
+    }
+  }
+  // keep the points in order across the screen (a curve squeezed near the edge just starts off screen)
+  if (!back) pts = pts.filter((p, i) => i === 0 || p[0] > pts[i - 1][0] + 0.01 * W);
+  hz.flight = flight; hz.dir = dir; hz.speed = sp; hz.turnX = X(turnU); hz.passSide = Math.sign(X(-0.1 * W) - charX); hz.passes = 0;
+  setPath(hz, pts.map(([u, y]) => [X(u), y]), lowest);
+  if (flight === 'hover') { const P = hz.path; let best = 0; for (let i = 0; i < P.length; i++) if (Math.abs(P[i].x - X(hz.hoverU)) < Math.abs(P[best].x - X(hz.hoverU))) best = i; hz.hoverDist = P[best].d; }
 }
 // Move a path-follower along. The eagle speeds up as it dives; the boomerang slows as it swings round.
 function followPath(hz, dt) {
   const prev = { x: hz.x, y: hz.y };
   let v = hz.speed;
   const here = pathPoint(hz, hz.dist), slope = here.ty / (Math.hypot(here.tx, here.ty) || 1);
-  if (hz.kind === 'eagle') { v *= slope > 0 ? 1 + 0.8 * slope : 1 + 0.3 * slope; hz.climbing = slope < -0.15; hz.flapPh += dt / 70 * (hz.climbing ? 1.9 : 1); }
+  if (hz.kind === 'eagle') {
+    v *= slope > 0 ? 1 + 0.8 * slope : 1 + 0.3 * slope; hz.climbing = slope < -0.15; hz.flapPh += dt / 70 * (hz.climbing ? 1.9 : 1);
+    hz.talon = (hz.talon || 0) + ((slope > 0.2 ? 1 : 0) - (hz.talon || 0)) * Math.min(1, dt / 110);   // talons out while it dives
+  }
   else v *= 0.4 + 0.6 * clamp(Math.abs(hz.x - hz.turnX) / (W * 0.25), 0, 1);
+  if (hz.hoverLeft > 0 && hz.dist >= hz.hoverDist) {                 // the boomerang hangs in mid-air, spinning and wobbling
+    hz.hoverLeft -= dt; hz.hoverT = (hz.hoverT || 0) + dt;
+    const p = pathPoint(hz, hz.dist);
+    hz.x = p.x + Math.sin(hz.hoverT / 260) * charH * 0.03; hz.y = p.y + Math.sin(hz.hoverT / 380) * charH * 0.04;
+    hz.vx = 0; hz.vy = 0; hz.spin += hz.dir * dt * 0.0075; return;
+  }
   hz.dist = Math.min(hz.pathLen, hz.dist + v * dt);
   const p = pathPoint(hz, hz.dist);
   hz.x = p.x; hz.y = p.y; hz.vx = (p.x - prev.x) / (dt || 1); hz.vy = (p.y - prev.y) / (dt || 1);
@@ -792,14 +853,15 @@ function nextLane() {
   const r = Math.random();
   return r < 0.38 ? 'sky' : r < 0.69 ? 'ground' : 'air';
 }
-const TEACH_TEXT = { bounce:['Pogo kid!', 'Watch his shadow and step aside from where he lands'], ufo:['UFO!', 'Listen: when the charging sound peaks, it fires where its beam is pointing'],
+const TEACH_TEXT = { bounce:['Pogo kid!', 'Watch his hops and step aside from where he will land'], ufo:['UFO!', 'Listen: when the charging sound peaks, it fires where its beam is pointing'],
   villain:['Punch him!', 'Throw a punch towards him. Three punches knock him out'],
    sky:['Step aside!', 'Move left or right out of the shadow'], ground:['Jump!', 'Jump over it when it reaches you'], air:['Duck!', 'Crouch down so it flies over your head'] };
 
 function hurt(now, hz) {
   if (now < G.safeUntil || G.state !== 'play') return;
   G.lives--; renderHearts(); G.safeUntil = now + SAFE_MS; G.shake = 12; G.hurtAt = now;
-  if (hz.lane !== 'ufo' && hz.lane !== 'villain') { hz.hit = true; hz.vy = -0.0008 * charH * 1000 / 1000 * 0.9; hz.vx = -hz.vx * 0.4; hz.flying = true; }
+  if (hz.kind === 'poop') { hz.done = true; G.headSplat = now + 4000; }   // splat! on his head
+  else if (hz.lane !== 'ufo' && hz.lane !== 'villain') { hz.hit = true; hz.vy = -0.0008 * charH * 1000 / 1000 * 0.9; hz.vx = -hz.vx * 0.4; hz.flying = true; }
   // The first two injuries get a short groan; the third and final one gets the full scream.
   sfx.ouch(); if (audio()) { if (G.lives > 0) groan(actx, G.lives === LIVES - 1 ? 1 : 2); else scream(actx); }
   G.effects.push({ type:'text', text:'OUCH!', x: charX, y: groundY - charH * 1.05, born: now, color:'#ff5d5d' });
@@ -955,6 +1017,7 @@ function updateHazards(now, dt, sk) {
     if (!hz.hit && circles.some(cr => circleHitsBox(cr, hz))) { hurt(now, hz); continue; }
     const d = HAZARDS[hz.kind];
     if (circles.length && onCourse(hz, circles, now)) G.dangerUntil = now + 200;
+    if (hz.kind === 'eagle') maybePoop(hz, now);
     if (hz.path) {
       if (d.returns) {                                                 // a point each time it passes the player
         const side = Math.sign(hz.x - charX);
@@ -997,6 +1060,9 @@ function updateHazards(now, dt, sk) {
         G.effects.push({ type:'boom', x, y: groundY, r, born: now, dur: 1600 });
         G.effects.push({ type:'wreck', x, y: groundY, dir: hz.dir, born: now, dur: 4200 });
         if (blast(x, r)) { hurt(now, hz); continue; }
+      } else if (d.splat) {
+        if (audio()) splat(actx);
+        G.effects.push({ type:'splat', x: hz.x, y: groundY + 2, born: now, dur: 3000 });
       } else {
         sfx.thud(); G.shake = hz.kind === 'elephant' ? 28 : 8;
         if (hz.kind === 'elephant') setTimeout(sfx.thud, 90);
@@ -1018,8 +1084,27 @@ function updateHazards(now, dt, sk) {
   G.hazards = G.hazards.filter(hz => !hz.done);
 }
 
-// Things falling from the sky cast a growing shadow where they will land. (No arrows: things coming
-// sideways just appear at the edge of the screen.)
+// Some eagles let go a dropping while still well above head height, aimed roughly where the player is. It
+// keeps only a little of the eagle's speed, so the eagle swoops past first and the dropping lands later. Fair: it
+// never lands within 3/4 of a second of the eagle itself reaching the player, so there's time to do both.
+function maybePoop(hz, now) {
+  if (!hz.willPoop || hz.pooped || hz.flying || hz.hit) return;
+  if (hz.y > groundY - charH * 1.5) return;                          // only from well above head height
+  const g = fallGravity('poop', now), vx = hz.vx * 0.3, D = groundY - hz.y;
+  const tL = Math.sqrt(2 * D / g), lx = hz.x + vx * tL;
+  if (Math.abs(lx - charX) > charH * 0.12) return;
+  let tE = Infinity, t = 0;                                           // when the eagle itself reaches the player: follow its
+  for (let i = hz.seg + 1; i < hz.path.length; i++) {                 // flight path at the speed it will fly each stretch
+    const A = hz.path[i - 1], B = hz.path[i], len = B.d - A.d, slope = (B.y - A.y) / (len || 1);
+    t += len / (hz.speed * (slope > 0 ? 1 + 0.8 * slope : 1 + 0.3 * slope));
+    if (Math.abs(B.x - charX) < charH * 0.3 && B.y > groundY - charH * 1.4) { tE = t; break; }
+  }
+  if (Math.abs(tL - tE) < 850) return;
+  hz.pooped = true;
+  const p = spawn('sky', now, 'poop');
+  p.x = hz.x; p.y = hz.y + hz.h * 0.2; p.vx = vx; p.vy = 0; p.g = g;
+}
+
 // Is this thing on course to hit the player within about a second? (Then the man looks alarmed.)
 function onCourse(hz, circles, now) {
   if (hz.flying || hz.hit) return false;
@@ -1037,22 +1122,8 @@ function onCourse(hz, circles, now) {
   return false;
 }
 
-function drawShadows(c, now) {
-  for (const hz of G.hazards) {
-    if (hz.flying) continue;
-    if (hz.lane === 'sky') {
-      const p = clamp((hz.y + hz.h) / (groundY + hz.h), 0.1, 1);
-      c.fillStyle = `rgba(0,0,0,${0.15 + 0.25 * p})`;
-      c.beginPath(); c.ellipse(hz.x, groundY + 4, hz.w * 0.55 * p, hz.w * 0.12 * p, 0, 0, 7); c.fill();
-    } else if (hz.lane === 'bounce' && hz.vy > 0) {
-      // the pogo kid coming down: a shadow where he will land, darker and bigger the closer he gets
-      const d = groundY - (hz.y + POGO_FOOT * charH), tl = (-hz.vy + Math.sqrt(hz.vy * hz.vy + 2 * hz.g * Math.max(0, d))) / hz.g;
-      const p = clamp(1 - d / (groundY * POGO_RISE), 0.1, 1), lx = hz.x + hz.vx * tl;
-      c.fillStyle = `rgba(0,0,0,${0.22 + 0.3 * p})`;
-      c.beginPath(); c.ellipse(lx, groundY + 4, charH * (0.11 + 0.1 * p), charH * 0.025 * (0.5 + p), 0, 0, 7); c.fill();
-    }
-  }
-}
+// No warning shadows: players judge from the flight of each thing where it will come down.
+function drawShadows() {}
 
 function drawEffects(c, now) {
   G.effects = G.effects.filter(e => now - e.born < (e.dur || 900));
@@ -1087,6 +1158,8 @@ function drawEffects(c, now) {
       c.strokeText(e.text, e.x, e.y - t * 40); c.fillText(e.text, e.x, e.y - t * 40); c.globalAlpha = 1;
     } else if (e.type === 'boom') {
       drawFireball(c, e, now);
+    } else if (e.type === 'splat') {
+      drawSplat(c, e.x, e.y, charH, clamp((e.dur - (now - e.born)) / 800, 0, 1));
     } else if (e.type === 'dust') {
       drawDust(c, e, now);
     } else if (e.type === 'landed') {                                    // the object rests on the ground, then fades
@@ -1238,6 +1311,7 @@ function gameFrame(now, dt) {
     ctx.beginPath(); ctx.ellipse(k.hip.x, groundY + 4, charH * 0.16 / (1 + motion.lift / charH * 3), charH * 0.03, 0, 0, 7); ctx.fill();
     const mood = now - (G.hurtAt || -1e9) < 1000 ? 'pain' : now < (G.dangerUntil || 0) ? 'alarm' : 'neutral';
     drawCharacter(ctx, k, selected(), now < G.safeUntil, mood, now);
+    if (now < (G.headSplat || 0)) drawSplat(ctx, k.head.x + k.head.r * 0.25, k.head.y - k.head.r * 0.75, charH, clamp((G.headSplat - now) / 800, 0, 1), true);
   }
   if (G.villain) drawVillain(ctx, G.villain, charH, now);
   for (const hz of G.hazards) drawHazard(ctx, hz, charH, now);

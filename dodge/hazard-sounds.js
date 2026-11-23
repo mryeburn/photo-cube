@@ -427,6 +427,13 @@ export function twang(a, dest = a.destination) {
 }
 
 // A bald eagle's cry: a high, harsh, falling scream with a quick flutter in it.
+// The eagle's poop landing: a small wet splat.
+export function splat(a) {
+  const at = a.currentTime, src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+  src.buffer = noiseBuffer(a); f.type = 'bandpass'; f.frequency.setValueAtTime(900, at); f.frequency.exponentialRampToValueAtTime(250, at + 0.12); f.Q.value = 1.5;
+  g.gain.setValueAtTime(0.7, at); g.gain.exponentialRampToValueAtTime(0.001, at + 0.16);
+  src.connect(f).connect(g).connect(a.destination); src.start(at, Math.random()); src.stop(at + 0.2);
+}
 function screech(a, dest) {
   const at = a.currentTime, o = a.createOscillator(), o2 = a.createOscillator(), g = a.createGain(), lfo = a.createOscillator(), amt = a.createGain();
   o.type = 'sawtooth'; o2.type = 'sine';
