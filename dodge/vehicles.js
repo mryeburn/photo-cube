@@ -171,7 +171,7 @@ export const VEHICLES = {
     colours:['#a8101a', '#eef0f2', '#1d4e89', '#8e959c', '#2b2d31'] },
   jeep:    { name:'jeep', w:0.98, h:0.46, mul:1.0, wheels:[[-0.29, 0.095], [0.3, 0.095]], R:0.11, boxes:[[-0.34, 0.39, 0.2], [-0.34, 0.11, 0.39]], rim:'jeep',
     colours:['#4b5320', '#e8590c', '#1b1d21', '#f1f3f5', '#b02a2a', '#1864ab'] },
-  pickup:  { name:'old pickup', w:1.25, h:0.47, size:0.8, mul:0.97, wheels:[[-0.36, 0.085], [0.38, 0.085]], R:0.102, boxes:[[-0.47, 0.47, 0.27], [0.02, 0.2, 0.4]], rim:'rusty',
+  pickup:  { name:'old pickup', w:1.25, h:0.564, size:0.9, tall:1.2, mul:1.0, wheels:[[-0.36, 0.1], [0.38, 0.1]], R:0.102, boxes:[[-0.47, 0.47, 0.3], [0.02, 0.2, 0.45]], rim:'rusty',
     colours:['#5b7da0', '#8c3b32', '#a68a5b', '#56704a'] },
   beetle:  { name:'old Beetle', w:0.9, h:0.39, mul:0.85, wheels:[[-0.25, 0.07], [0.27, 0.07]], R:0.088, boxes:[[-0.31, 0.31, 0.2], [-0.22, 0.1, 0.33]], rim:'hubcap',
     colours:['#8aa37a', '#c9b98a', '#7d97b0'] },
@@ -372,6 +372,7 @@ function paintPickup(c, s, col) {
   const win = P(s, [['M', 0.03, -0.448], ['L', 0.175, -0.448], ['L', 0.215, -0.335], ['L', 0.03, -0.335], ['Z']]);
   c.fillStyle = '#1b1814'; c.fill(win);
   c.save(); c.clip(win);
+  const k = VEHICLES.pickup.tall; c.translate(0, -0.39 * s); c.scale(1, 1 / k); c.translate(0, 0.39 * s);   // keep the driver in proportion
   const skin = '#d9a77c';
   fillStroke(c, P(s, [['M', 0.04, -0.33], ['Q', 0.05, -0.38, 0.09, -0.385], ['Q', 0.13, -0.385, 0.15, -0.33], ['Z']]), '#9c2a2a');   // plaid shirt
   for (const x of [0.06, 0.09, 0.12]) line(c, s, [[x, -0.385], [x, -0.33]], 'rgba(20,10,10,0.6)', 1.5);
@@ -465,6 +466,7 @@ function sprite(kind, col, s) {
     const w = (V.w + padX * 2) * s, h = (top + bot) * s, cv = document.createElement('canvas');
     cv.width = Math.ceil(w * dpr); cv.height = Math.ceil(h * dpr);
     const c = cv.getContext('2d'); c.scale(dpr, dpr); c.translate((V.w / 2 + padX) * s, top * s); c.lineJoin = 'round';
+    if (V.tall) c.scale(1, V.tall);                                    // drawn taller (the old pickup sits up high)
     PAINTERS[kind](c, s, col);
     e = { cv, w, h, ox: (V.w / 2 + padX) * s, oy: top * s };
     sprites.set(key, e); if (sprites.size > 40) sprites.delete(sprites.keys().next().value);

@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '2.9';
+const VERSION = '3.0';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -558,6 +558,9 @@ function vehicleHits(cir, hz) {
 function circleHitsBox(cir, hz) {
   if (HAZARDS[hz.kind].shaped) return shapeHits(cir, hz);
   if (HAZARDS[hz.kind].vehicle) return vehicleHits(cir, hz);
+  if (HAZARDS[hz.kind].pogo) {                                         // the kid and his pogo stick: a tall, narrow shape
+    const s = charH * HAZARDS.pogo.scale; return distToSegment(cir, hz.x, hz.y + 0.35 * s, hz.x, hz.y - 0.28 * s) < cir.r + 0.075 * s;
+  }
   const r = HAZARDS[hz.kind].hitR;
   if (r) return Math.hypot(cir.x - hz.x, cir.y - hz.y) < r * charH + cir.r;   // round hit area (a diving plane)
   // A little forgiving at the edges. Things on the ground are judged by their solid middle (a car's
@@ -594,7 +597,7 @@ function startGame() {
   audio(); resize(); silenceAll();
   try { preloadVehicles(charH); } catch (e) { console.error(e); }
   stopVillain();
-  Object.assign(G, { sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, stats:{ jumps:0, ducks:0, steps:0 },
+  Object.assign(G, { sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, stats:{ jumps:0, ducks:0, steps:0 },
     phaseStart:performance.now(), lastTick:-1, bannerUntil:0, shake:0, lastSk:null });
   motion.airborne = false; motion.ducking = false;
   $('scoreNum').textContent = '0'; $('timeNum').textContent = '0:00'; renderHearts();
@@ -633,11 +636,20 @@ function spawn(lane, now, kind = null, aimed = false) {
     hz.x = hz.dir > 0 ? -w : W + w; hz.baseY = H * 0.2 + Math.random() * H * 0.08; hz.y = hz.baseY;
     hz.vx = hz.dir * sp; hz.vy = 0; hz.shots = 0; hz.nextShot = now + 1400 + Math.random() * 800; hz.aim = null;
     const t = elapsed(now); hz.maxShots = t < 120 ? 1 : t < 180 ? 2 : 3;   // more shots per visit as the game goes on
+  } else if (lane === 'bounce') {
+    // A kid on a pogo stick bounces across the screen in 3 or 4 big hops, each one rising to about two-thirds
+    // of the way up the screen. One of the landings is aimed at where the player is standing: step aside.
+    hz.dir = Math.random() < 0.5 ? 1 : -1;
+    const A = groundY * POGO_RISE, T = 1500 / Math.sqrt(speedUp(now)), n = Math.random() < 0.5 ? 3 : 4;
+    const x0 = hz.dir > 0 ? -w / 2 : W + w / 2, x1 = hz.dir > 0 ? W + w / 2 : -w / 2;
+    hz.vx = hz.dir * Math.abs(x1 - x0) / (n * T); hz.g = 8 * A / (T * T); hz.hopV = 4 * A / T;
+    const tau = T - (Math.abs(charX - x0) / Math.abs(hz.vx)) % T;     // how far into a hop it is as it appears
+    hz.x = x0; hz.y = groundY - POGO_FOOT * s - 4 * A * tau * (T - tau) / (T * T); hz.vy = -4 * A * (T - 2 * tau) / (T * T);
   } else if (lane === 'sky') {
     // Falling things start slowly and speed up under gravity.
     hz.x = skyTarget(w, aimed);
     if (d.tumbles) { hz.spin = (Math.random() - 0.5) * 1.2; hz.spinV = (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.5) / 1000; }   // rolls as it falls
-    hz.y = -h; hz.vx = 0; hz.vy = FALL_V0 * s; hz.g = fallGravity(kind, now);
+    hz.y = -h; hz.vx = 0; hz.vy = (d.fallV0 ? d.fallV0 / 1000 : FALL_V0) * s; hz.g = fallGravity(kind, now);
   } else {
     hz.dir = Math.random() < 0.5 ? 1 : -1;
     let lead = sp * 150;                                                          // starts just off screen
@@ -738,7 +750,7 @@ function followPath(hz, dt) {
     const a = Math.atan2(p.ty, p.tx);
     if (p.tx >= 0) { hz.dir = 1; hz.spin = a * 0.8; }
     else { hz.dir = -1; let b = a - Math.PI; if (b < -Math.PI) b += 2 * Math.PI; hz.spin = b * 0.8; }
-  } else hz.spin += hz.dir * dt * 0.022;                              // the boomerang spins fast and flat
+  } else hz.spin += hz.dir * dt * 0.0075;                             // the boomerang spins flat, about 1.2 turns a second
 }
 
 // Where a falling object lands: 40% of the time aimed at the player, otherwise 1 to 3 character widths
@@ -751,8 +763,9 @@ function skyTarget(w, aimed) {
   if (charX + side * off < w / 2 || charX + side * off > W - w / 2) side = -side;   // no room that side: use the other
   return clamp(charX + side * off, w / 2, W - w / 2);
 }
+const POGO_RISE = 0.6, POGO_FOOT = 0.35 * 1.25;                       // the pogo kid's hops: share of the ground height; centre to rubber foot
 const FALL_V0 = 0.25 / 1000;                                   // starting fall speed, character heights per ms
-const fallGravity = (kind, now) => 0.9 * charH / 1e6 * (HAZARDS[kind].speed * speedUp(now)) ** 2;   // px per ms²
+const fallGravity = (kind, now) => 0.9 * charH / 1e6 * (HAZARDS[kind].speed * speedUp(now)) ** 2 * (HAZARDS[kind].gMul || 1);   // px per ms²
 
 // Something along the ground (or at head height) plus something from the sky, timed so both reach the
 // player at about the same moment: they have to step aside and jump (or duck) together.
@@ -760,7 +773,7 @@ function spawnCombo(now) {
   const side = spawn(Math.random() < 0.6 ? 'ground' : 'air', now);
   const arriveMs = Math.abs(side.x - charX) / Math.abs(side.vx);
   const kinds = BY_LANE.sky.filter(k => !HAZARDS[k].dives), kind = kinds[Math.floor(Math.random() * kinds.length)];
-  const D = groundY - charH * 0.5 + sizeOf(kind).h * charH, v0 = FALL_V0 * charH, g = fallGravity(kind, now);
+  const D = groundY - charH * 0.5 + sizeOf(kind).h * charH, v0 = (HAZARDS[kind].fallV0 ? HAZARDS[kind].fallV0 / 1000 : FALL_V0) * charH, g = fallGravity(kind, now);
   const fallMs = (-v0 + Math.sqrt(v0 * v0 + 2 * g * D)) / g;    // time to fall to body height under gravity
   G.pending.push({ at: now + Math.max(0, arriveMs - fallMs + (Math.random() - 0.5) * 600), lane: 'sky', kind, aimed: true });
 }
@@ -774,11 +787,12 @@ function nextLane() {
   // UFOs after 45 seconds, one at a time; after 4 minutes, up to two at once.
   const ufos = G.hazards.filter(h => h.lane === 'ufo').length, t = elapsed(performance.now());
   if (t > 45 && ufos < (t > 240 ? 2 : 1) && Math.random() < 0.13) return 'ufo';
+  if (t > 60 && !G.hazards.some(h => h.lane === 'bounce') && Math.random() < 0.12) return 'bounce';   // the pogo kid, after a minute
   // (the masked brute is on hold for now; spawnVillain() is kept for when he returns)
   const r = Math.random();
   return r < 0.38 ? 'sky' : r < 0.69 ? 'ground' : 'air';
 }
-const TEACH_TEXT = { ufo:['UFO!', 'Listen: when the charging sound peaks, it fires where its beam is pointing'],
+const TEACH_TEXT = { bounce:['Pogo kid!', 'Watch his shadow and step aside from where he lands'], ufo:['UFO!', 'Listen: when the charging sound peaks, it fires where its beam is pointing'],
   villain:['Punch him!', 'Throw a punch towards him. Three punches knock him out'],
    sky:['Step aside!', 'Move left or right out of the shadow'], ground:['Jump!', 'Jump over it when it reaches you'], air:['Duck!', 'Crouch down so it flies over your head'] };
 
@@ -950,6 +964,15 @@ function updateHazards(now, dt, sk) {
       continue;
     }
     if (hz.lane === 'ufo') { updateUfo(hz, now, circles, dt); continue; }
+    if (hz.lane === 'bounce') {
+      const foot = hz.y + POGO_FOOT * charH;
+      hz.comp = clamp(1 - (groundY - foot) / (charH * 0.06), 0, 1);       // the spring squashes as it touches down
+      if (foot >= groundY && hz.vy > 0) {
+        hz.y = groundY - POGO_FOOT * charH; hz.vy = -hz.hopV;
+        if (hz.voice && hz.voice.play) { try { hz.voice.play('boing'); } catch (e) {} }
+        G.effects.push({ type:'dust', x: hz.x, y: groundY, born: now, w: charH * 0.25, dur: 600 });
+      }
+    }
     if (d.arc && hz.vy > 0 && hz.y >= groundY - hz.h * 0.4) {          // the tomahawk lands, blade first, and sticks
       hz.done = true; dodged(now, hz); sfx.thud(); tone(180, 0.12, 'square', 0.12);
       G.effects.push({ type:'landed', hz:{ ...hz, done:false, flying:false, y: groundY - charH * 0.14, spin: hz.dir * 2.3 }, born: now, dur: 1400 });
@@ -1021,6 +1044,12 @@ function drawShadows(c, now) {
       const p = clamp((hz.y + hz.h) / (groundY + hz.h), 0.1, 1);
       c.fillStyle = `rgba(0,0,0,${0.15 + 0.25 * p})`;
       c.beginPath(); c.ellipse(hz.x, groundY + 4, hz.w * 0.55 * p, hz.w * 0.12 * p, 0, 0, 7); c.fill();
+    } else if (hz.lane === 'bounce' && hz.vy > 0) {
+      // the pogo kid coming down: a shadow where he will land, darker and bigger the closer he gets
+      const d = groundY - (hz.y + POGO_FOOT * charH), tl = (-hz.vy + Math.sqrt(hz.vy * hz.vy + 2 * hz.g * Math.max(0, d))) / hz.g;
+      const p = clamp(1 - d / (groundY * POGO_RISE), 0.1, 1), lx = hz.x + hz.vx * tl;
+      c.fillStyle = `rgba(0,0,0,${0.22 + 0.3 * p})`;
+      c.beginPath(); c.ellipse(lx, groundY + 4, charH * (0.11 + 0.1 * p), charH * 0.025 * (0.5 + p), 0, 0, 7); c.fill();
     }
   }
 }
@@ -1179,8 +1208,9 @@ function gameFrame(now, dt) {
         } else {
           const lane = nextLane();
           spawn(lane, now);
-          if ((G.tutorial <= 3 && G.tutorial > 0 && G.score < 3) || (lane === 'ufo' && !G.sawUfo) || (lane === 'villain' && !G.sawVillain)) flash(TEACH_TEXT[lane][0], TEACH_TEXT[lane][1], 3000, now);
+          if ((G.tutorial <= 3 && G.tutorial > 0 && G.score < 3) || (lane === 'ufo' && !G.sawUfo) || (lane === 'bounce' && !G.sawPogo) || (lane === 'villain' && !G.sawVillain)) flash(TEACH_TEXT[lane][0], TEACH_TEXT[lane][1], 3000, now);
           if (lane === 'ufo') G.sawUfo = true;
+          if (lane === 'bounce') G.sawPogo = true;
           if (lane === 'villain') G.sawVillain = true;
           G.nextSpawn = now + spawnGap(now);
         }

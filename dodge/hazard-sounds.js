@@ -47,7 +47,8 @@ const SOUNDS = {
   pig:      { base:0.45, every:[0.75, 'squeal'], charge:true },
   tire:     { base:1.0, floor:0.25 },                                  // bounces: see bounce()
   eagle:    { base:0.35, every:[0.22, 'flap'], screechAtStart:true, whoosh:true },   // screeches as it starts its dive
-  boomerang:{ base:0.6,  every:[0.085, 'whirr'], steady:true },           // a fast flutter as it spins
+  pogo:     { base:0.9,  floor:0.25 },                                     // boing! on each landing (see play)
+  boomerang:{ base:0.6,  every:[0.21, 'whirr'], steady:true },            // a flutter as it spins
   missile:  { base:0.3,  hiss:1400, engine:[110, 'sawtooth', 500] },
   arrow:    { base:0.5,  twang:true },                                   // a bow twang, then silent flight
   tomahawk: { base:0.55, every:[0.63, 'whup'], steady:true },        // whup-whup: once per half turn as it spins
@@ -93,6 +94,15 @@ export function createVoice(a, kind) {
     screech: () => ping('sine', 2400, 1500, 0.6, 0.6),
     whup: () => burst('bandpass', 850, 0.13, 1.1),               // a spinning blade cutting the air
     putt: () => burst('lowpass', 380, 0.05, 1.3),                 // an old air-cooled engine's put-put
+    // a pogo stick landing: a springy, wobbling "boing" that drops in pitch
+    boing: () => {
+      const at = t(), o = a.createOscillator(), g = a.createGain(), lfo = a.createOscillator(), amt = a.createGain();
+      o.type = 'triangle'; o.frequency.setValueAtTime(420, at); o.frequency.exponentialRampToValueAtTime(140, at + 0.4);
+      lfo.frequency.value = 22; amt.gain.value = 35; lfo.connect(amt).connect(o.frequency);
+      g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(1.0, at + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.45);
+      o.connect(g).connect(out); o.start(at); lfo.start(at); o.stop(at + 0.5); lfo.stop(at + 0.5);
+      burst('lowpass', 200, 0.08, 1.2);
+    },
     whirr: () => burst('bandpass', 560 + Math.random() * 120, 0.06, 1.2),   // each turn of a boomerang
     squeal: () => squeal(a, out, 0.45 + Math.random() * 0.25, 0.9),
   };
@@ -162,6 +172,7 @@ export function createVoice(a, kind) {
       if (cfg.cry && !cried && prox > 0.45) { cried = true; EVENTS[cfg.cry](); }
       if (cfg.trumpet && !trumpetedAgain && fall > 0.55) { trumpetedAgain = true; trumpet(a, pan || a.destination, 0.9, 0.9); }
     },
+    play(name) { if (EVENTS[name]) EVENTS[name](); },
     // A rubbery bounce, played each time the tire hits the ground (follows its loudness and position).
     // (a recorded bounce, CC0, trimmed so each one ends before the next landing)
     bounce() {
