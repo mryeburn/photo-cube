@@ -429,6 +429,17 @@ export function twang(a, dest = a.destination) {
 }
 
 // A bald eagle's cry: a high, harsh, falling scream with a quick flutter in it.
+// Something enormously heavy hitting the ground: a deep boom with a rumble. loud: 0 (far away) .. 1 (right beside).
+export function bigThud(a, loud = 1) {
+  const at = a.currentTime, o = a.createOscillator(), g = a.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(95, at); o.frequency.exponentialRampToValueAtTime(30, at + 0.6);
+  g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(1.4 * loud + 0.05, at + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, at + 0.8);
+  o.connect(g).connect(a.destination); o.start(at); o.stop(at + 0.85);
+  const n = a.createBufferSource(), f = a.createBiquadFilter(), ng = a.createGain();
+  n.buffer = noiseBuffer(a); f.type = 'lowpass'; f.frequency.value = 160 + 220 * loud;
+  ng.gain.setValueAtTime(1.6 * loud + 0.05, at); ng.gain.exponentialRampToValueAtTime(0.0001, at + 0.3 + 0.9 * loud);
+  n.connect(f).connect(ng).connect(a.destination); n.start(at, Math.random()); n.stop(at + 1.3);
+}
 // The eagle's poop landing: a small wet splat.
 export function splat(a) {
   const at = a.currentTime, src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();

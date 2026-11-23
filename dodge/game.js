@@ -3,7 +3,7 @@
 // flying at head height.
 import { FilesetResolver, PoseLandmarker, FaceDetector } from './lib/mediapipe/vision_bundle.mjs';
 import { HAZARDS, BY_LANE, VEHICLES, VEHICLE_KINDS, drawHazard, sizeOf, drawWreck, drawSplat, preloadVehicles } from './hazards.js';
-import { createVoice, loadSamples, splat, scream, groan, fire, laserCharge, laserShot, villainVoice, swoosh, pow, knockout } from './hazard-sounds.js';
+import { createVoice, loadSamples, splat, bigThud, scream, groan, fire, laserCharge, laserShot, villainVoice, swoosh, pow, knockout } from './hazard-sounds.js';
 import { drawVillain } from './villain.js';
 import { drawScenery as paintScenery } from './scenery.js';
 
@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '3.3';
+const VERSION = '3.4';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -665,7 +665,7 @@ function startGame() {
   audio(); resize(); silenceAll();
   try { preloadVehicles(charH); } catch (e) { console.error(e); }
   stopVillain();
-  Object.assign(G, { sawEle:false, knock:null, carry:null, flat:false, lay:0, laySide:1, boostUntil:0, nextHealth:performance.now() + 60000, nextEnergy:performance.now() + 60000 + 30000 + Math.random() * 60000, sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, headSplat:0, stats:{ jumps:0, ducks:0, steps:0 },
+  Object.assign(G, { seen:{}, quake:null, stagger:null, sawEle:false, knock:null, carry:null, flat:false, lay:0, laySide:1, boostUntil:0, nextHealth:performance.now() + 60000, nextEnergy:performance.now() + 60000 + 30000 + Math.random() * 60000, sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, headSplat:0, stats:{ jumps:0, ducks:0, steps:0 },
     phaseStart:performance.now(), lastTick:-1, bannerUntil:0, shake:0, lastSk:null });
   motion.airborne = false; motion.ducking = false;
   $('scoreNum').textContent = '0'; $('timeNum').textContent = '0:00'; renderHearts();
@@ -702,7 +702,7 @@ function spawn(lane, now, kind = null, aimed = false, dir = null) {
     // A UFO glides across the sky, bobbing up and down, and twice locks on and fires its laser.
     hz.dir = Math.random() < 0.5 ? 1 : -1;
     hz.x = hz.dir > 0 ? -w : W + w; hz.baseY = H * 0.2 + Math.random() * H * 0.08; hz.y = hz.baseY;
-    hz.vx = hz.dir * sp; hz.vy = 0; hz.shots = 0; hz.nextShot = now + 1400 + Math.random() * 800; hz.aim = null;
+    hz.vx = hz.dir * sp; hz.cruise = sp; hz.vy = 0; hz.shots = 0; hz.nextShot = now + 1400 + Math.random() * 800; hz.aim = null;
     const t = elapsed(now); hz.maxShots = t < 120 ? 1 : t < 180 ? 2 : 3;   // more shots per visit as the game goes on
   } else if (lane === 'charge') {
     // The elephant charges in from one side and stops short of the player (on screen, so they can see it)...
@@ -732,11 +732,12 @@ function spawn(lane, now, kind = null, aimed = false, dir = null) {
   } else {
     hz.dir = dir || (Math.random() < 0.5 ? 1 : -1);
     let lead = sp * 150;                                                          // starts just off screen
+    if (kind === 'arrow') lead += sp * 450;                                        // the bow twangs a moment before the arrow appears
     if (d.vehicle) {
-      // Fast cars start further off screen (you hear the engine first), so there's always at least a second
+      // Fast cars start further off screen (you hear the engine first), so there's always at least 1.5 s
       // to react before one reaches the player.
       const T = (Math.abs((hz.dir > 0 ? -w / 2 - lead : W + w / 2 + lead) - charX)) / sp;
-      if (T < 1000) lead += (1000 - T) * sp;
+      if (T < 1500) lead += (1500 - T) * sp;
       const cols = VEHICLES[kind].colours; hz.colour = cols[Math.floor(Math.random() * cols.length)];
     }
     hz.x = hz.dir > 0 ? -w / 2 - lead : W + w / 2 + lead;
@@ -811,65 +812,30 @@ function swoopPath(hz, sp) {
 // swings round, and goes back out the side it came from: at head height again (duck, duck) or low along the
 // ground (duck, then jump).
 function boomerangPath(hz, sp) {
-  // Five flights, picked at random so the player can't predict it:
-  //   back-high  out at head height, turns round and comes back at head height (duck, duck)
-  //   back-low   out at head height, turns round and comes back skimming the floor (duck, then jump)
-  //   hover      hangs in mid-air spinning for 1.5 to 3 s (away from the player), then carries on
-  //   swoop      carries on the same way, diving in a curve down to the floor and either staying low or
-  //              sweeping back up
-  //   climb      carries on the same way, climbing in a curve above head height and coming back down
-  // Fair: its height is settled within a quarter of the screen (about 3/4 s) either side of the player, so it
-  // never changes height right on top of them.
-  const flights = ['back-high', 'back-low', 'hover', 'swoop', 'climb'];
-  let flight = window.__dgFlight || (window.__dgLow != null ? (window.__dgLow ? 'back-low' : 'back-high') : flights[Math.floor(Math.random() * 5)]);
+  // Always comes in at head height (duck), flying level or on a gentle slope that puts it at head height as it
+  // passes the player. It turns round a random distance past them and comes back: half the time still at head
+  // height (duck), half the time skimming the floor (jump). Any change of height happens in the turn, well
+  // away from the player.
+  const yh = groundY - charH * TOMAHAWK_AT, yl = groundY - charH * 0.14;
+  let low = window.__dgFlight ? window.__dgFlight === 'back-low' : (window.__dgLow ?? Math.random() < 0.5);
   let dir = Math.random() < 0.5 ? 1 : -1;
-  const yh = groundY - charH * TOMAHAWK_AT, yl = groundY - charH * 0.14, yTop = yh - charH * 0.7, Z = W * 0.25;
-  const back = flight.startsWith('back');
-  if (back && (dir > 0 ? charX : W - charX) > W * (flight === 'back-low' ? 0.5 : 0.6)) dir = -dir;   // room to turn beyond the player
-  const X = u => dir > 0 ? u : W - u, up = dir > 0 ? charX : W - charX;
-  let pts, turnU = 1e9, lowest = yl;                                // the lowest the curve may go
-  if (back) {
-    // turns a third, half or most of the way across, but always well past the player
-    const need = up + (flight === 'back-low' ? W * 0.42 : W * 0.22);
-    const D = Math.min(W * 0.92, Math.max([0.33, 0.5, 0.8][Math.floor(Math.random() * 3)] * W, need));
-    pts = flight === 'back-low'
-      ? [[-0.1 * W, yh], [D - 0.15 * W, yh], [D, yh + (yl - yh) * 0.4], [D - 0.15 * W, yl], [-0.15 * W, yl]]
-      : [[-0.1 * W, yh], [D - 0.15 * W, yh], [D, yh - charH * 0.12], [D - 0.15 * W, yh - charH * 0.2], [D - 0.35 * W, yh], [-0.15 * W, yh]];
-    turnU = D; if (flight === 'back-high') lowest = yh;
-  } else if (flight === 'hover') {
-    // hangs somewhere at least a quarter of the screen from the player
-    let uh = W * (0.15 + Math.random() * 0.7);
-    if (Math.abs(uh - up) < Z) uh = up + (up < W / 2 ? Z + Math.random() * W * 0.15 : -Z - Math.random() * W * 0.15);
-    uh = clamp(uh, W * 0.1, W * 0.9);
-    pts = [[-0.1 * W, yh], [uh, yh], [1.15 * W, yh]];
-    hz.hoverU = uh; hz.hoverLeft = 1500 + Math.random() * 1500; turnU = uh; lowest = yh;
-  } else {
-    // a curve (down to the floor, or up above head height) in whichever stretch away from the player has room
-    const passLow = flight === 'swoop' && Math.random() < 0.5;            // swoop: stays low past the player half the time
-    const hp = passLow ? yl : (flight === 'climb' && Math.random() < 0.5 ? yl : yh), extreme = flight === 'swoop' ? yl : yTop;
-    const before = [-0.1 * W, up - Z], after = [up + Z, 1.15 * W];
-    if (flight === 'climb' && hp === yh) lowest = yh;
-    if (passLow) {
-      // dive to the floor before reaching the player, skim past low, and out
-      const end = Math.max(up - Z, -0.05 * W);
-      pts = [[-0.1 * W, yh], [Math.max(-0.08 * W, end - 0.3 * W), yh], [end, yl], [1.15 * W, yl]];
-    } else {
-      const lenB = before[1] - before[0], lenA = after[1] - after[0];
-      const [r0, r1] = lenB >= lenA ? before : after, c = (r0 + r1) / 2, half = Math.min(0.15 * W, (r1 - r0) / 2 - 0.02 * W);
-      const startY = lenB >= lenA ? yh : hp;                             // height on the way in, before the player
-      pts = lenB >= lenA
-        ? [[-0.1 * W, yh], [c - half, yh], [c, extreme], [c + half, hp], [1.15 * W, hp]]
-        : [[-0.1 * W, hp], [c - half, hp], [c, extreme], [c + half, hp], [1.15 * W, hp]];
-      if (lenB < lenA) pts[0][1] = startY;
-    }
+  const upOf = d => d > 0 ? charX : W - charX, need = () => (low ? 0.42 : 0.22) * W;
+  if (W * 0.92 - upOf(dir) < need()) dir = -dir;                     // come from the side with room to turn beyond the player
+  if (W * 0.92 - upOf(dir) < need()) low = false;
+  const X = u => dir > 0 ? u : W - u, up = upOf(dir);
+  const min = up + need(), D = min + Math.random() * Math.max(0, W * 0.92 - min);   // a random distance past the player
+  const slope = [-1, 0, 1][Math.floor(Math.random() * 3)] * charH * 0.12 / W, yAt = u => yh + slope * (u - up);
+  const pts = low
+    ? [[-0.1 * W, yAt(-0.1 * W)], [D - 0.15 * W, yAt(D - 0.15 * W)], [D, yAt(D) + (yl - yAt(D)) * 0.4], [D - 0.15 * W, yl], [-0.15 * W, yl]]
+    : [[-0.1 * W, yAt(-0.1 * W)], [D - 0.15 * W, yAt(D - 0.15 * W)], [D, yAt(D) - charH * 0.12], [D - 0.15 * W, yAt(D) - charH * 0.2], [D - 0.35 * W, yh], [-0.15 * W, yh]];
+  hz.flight = low ? 'back-low' : 'back-high'; hz.dir = dir; hz.speed = sp; hz.turnX = X(D); hz.passSide = Math.sign(X(-0.1 * W) - charX); hz.passes = 0;
+  setPath(hz, pts.map(([u, y]) => [X(u), y]), low ? yl : yh + charH * 0.15);
+  if (!low) {                                                         // the way back never dips below head height
+    const P = hz.path; let turn = 0;
+    P.forEach((q, i) => { if (dir > 0 ? q.x > P[turn].x : q.x < P[turn].x) turn = i; });
+    for (let i = turn; i < P.length; i++) P[i].y = Math.min(P[i].y, yh);
   }
-  // keep the points in order across the screen (a curve squeezed near the edge just starts off screen)
-  if (!back) pts = pts.filter((p, i) => i === 0 || p[0] > pts[i - 1][0] + 0.01 * W);
-  hz.flight = flight; hz.dir = dir; hz.speed = sp; hz.turnX = X(turnU); hz.passSide = Math.sign(X(-0.1 * W) - charX); hz.passes = 0;
-  setPath(hz, pts.map(([u, y]) => [X(u), y]), lowest);
-  if (flight === 'hover') { const P = hz.path; let best = 0; for (let i = 0; i < P.length; i++) if (Math.abs(P[i].x - X(hz.hoverU)) < Math.abs(P[best].x - X(hz.hoverU))) best = i; hz.hoverDist = P[best].d; }
-}
-// Move a path-follower along. The eagle speeds up as it dives; the boomerang slows as it swings round.
+}// Move a path-follower along. The eagle speeds up as it dives; the boomerang slows as it swings round.
 function followPath(hz, dt) {
   const prev = { x: hz.x, y: hz.y };
   let v = hz.speed;
@@ -918,29 +884,41 @@ const fallGravity = (kind, now) => 0.9 * charH / 1e6 * (HAZARDS[kind].speed * sp
 // Something along the ground (or at head height) plus something from the sky, timed so both reach the
 // player at about the same moment: they have to step aside and jump (or duck) together.
 function spawnCombo(now) {
-  const side = spawn(Math.random() < 0.6 ? 'ground' : 'air', now);
+  const open = unlocked(elapsed(now)), pick = a => a[Math.floor(Math.random() * a.length)];
+  const sides = open.filter(k => ['tire', 'pig', 'car', 'tomahawk', 'arrow', 'missile'].includes(k)), kinds = open.filter(k => ['anvil', 'weight', 'bomb'].includes(k));
+  if (!sides.length || !kinds.length) return false;                   // only things already met
+  const sk = pick(sides), side = spawn(LANE_OF(sk), now, sk);
   const arriveMs = Math.abs(side.x - charX) / Math.abs(side.vx);
-  const kinds = BY_LANE.sky.filter(k => !HAZARDS[k].dives), kind = kinds[Math.floor(Math.random() * kinds.length)];
+  const kind = pick(kinds);
   const D = groundY - charH * 0.5 + sizeOf(kind).h * charH, v0 = (HAZARDS[kind].fallV0 ? HAZARDS[kind].fallV0 / 1000 : FALL_V0) * charH, g = fallGravity(kind, now);
   const fallMs = (-v0 + Math.sqrt(v0 * v0 + 2 * g * D)) / g;    // time to fall to body height under gravity
   G.pending.push({ at: now + Math.max(0, arriveMs - fallMs + (Math.random() - 0.5) * 600), lane: 'sky', kind, aimed: true });
+  return true;
 }
 function silence(hz) { if (hz.voice) { hz.voice.stop(); hz.voice = null; } }
 function silenceAll() { G.hazards.forEach(silence); }
 
-function nextLane() {
-  // Teach the three moves first, then mix them up.
-  const teach = ['sky', 'ground', 'air'];
-  if (G.tutorial < teach.length) return teach[G.tutorial++];
-  // UFOs after 45 seconds, one at a time; after 4 minutes, up to two at once.
-  const ufos = G.hazards.filter(h => h.lane === 'ufo').length, t = elapsed(performance.now());
-  if (t > 45 && ufos < (t > 240 ? 2 : 1) && Math.random() < 0.13) return 'ufo';
-  if (t > 60 && !G.hazards.some(h => h.lane === 'bounce') && Math.random() < 0.12) return 'bounce';   // the pogo kid, after a minute
-  if (t > 40 && !G.hazards.some(h => h.lane === 'charge') && Math.random() < 0.1) return 'charge';     // the charging elephant, after 40 s
-  // (the masked brute is on hold for now; spawnVillain() is kept for when he returns)
-  const r = Math.random();
-  return r < 0.38 ? 'sky' : r < 0.69 ? 'ground' : 'air';
+// The order things first appear in: something new every 20 seconds. Cars and arrows, the hardest to dodge,
+// not before 3 minutes.
+const UNLOCK = [['tire', 0], ['pig', 20], ['anvil', 40], ['weight', 60], ['tomahawk', 80], ['boomerang', 100], ['bomb', 120], ['eagle', 140],
+  ['missile', 160], ['car', 180], ['arrow', 200], ['pogo', 220], ['plane', 240], ['elephant', 260], ['ufo', 280]];
+const LANE_OF = kind => kind === 'car' ? 'ground' : HAZARDS[kind].lane;
+const unlocked = t => UNLOCK.filter(([, at]) => t >= at).map(([k]) => k);
+const TEACH = { tire:['Jump!', 'Jump over the tire as it reaches you'], pig:['Pigs!', 'Jump over them'], anvil:['Anvils!', 'Step aside from where it will land'],
+  weight:['50 tons!', 'Step well clear of it'], tomahawk:['Tomahawk!', 'Duck under it'], boomerang:['Boomerang!', 'Duck... and watch how it comes back'],
+  bomb:['Bombs!', 'Get well away from where it lands'], eagle:['Eagle!', 'Duck under its talons, jump when it skims low'], missile:['Missile!', 'Duck if it comes high, jump if it comes low'],
+  car:['Cars!', 'Listen for the engine, then jump'], arrow:['Arrows!', 'Listen for the twang, then duck'], pogo:['Pogo kid!', 'Watch his hops and step aside from where he will land'],
+  plane:['Plane!', 'Get clear of where it will crash'], elephant:['Elephant!', 'Get down flat when it charges (carefully!)'], ufo:['UFO!', 'When it settles over you and glows brightest, step aside'] };
+function nextKind() {
+  const t = elapsed(performance.now()), open = unlocked(t), ufos = G.hazards.filter(h => h.lane === 'ufo').length;
+  const allowed = open.filter(k => !(k === 'ufo' && ufos >= (t > 360 ? 2 : 1)) && !(k === 'pogo' && G.hazards.some(h => h.lane === 'bounce')) && !(k === 'elephant' && G.hazards.some(h => h.lane === 'charge')));
+  const newest = open[open.length - 1];                              // the newest arrival comes up more often, so the player meets it
+  const weights = allowed.map(k => k === newest ? 3 : (k === 'ufo' || k === 'elephant' || k === 'pogo') ? 0.6 : 1);
+  let r = Math.random() * weights.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < allowed.length; i++) { r -= weights[i]; if (r <= 0) return allowed[i]; }
+  return allowed[0];
 }
+function nextLane() { return LANE_OF(nextKind()); }
 const TEACH_TEXT = { charge:['Elephant!', 'Get down flat when it charges (carefully!)'], bounce:['Pogo kid!', 'Watch his hops and step aside from where he will land'], ufo:['UFO!', 'Listen: when the charging sound peaks, it fires where its beam is pointing'],
   villain:['Punch him!', 'Throw a punch towards him. Three punches knock him out'],
    sky:['Step aside!', 'Move left or right out of the shadow'], ground:['Jump!', 'Jump over it when it reaches you'], air:['Duck!', 'Crouch down so it flies over your head'] };
@@ -960,64 +938,58 @@ function hurt(now, hz) {
 
 function dodged(now, hz) {
   G.score++; $('scoreNum').textContent = G.score; sfx.point();
-  G.effects.push({ type:'text', text:'+1', x: clamp(hz.x, 40, W - 40), y: hz.lane === 'sky' ? groundY - 30 : hz.y - hz.h, born: now, color:'#ffe066' });
 }
 
 // UFO: bobs across the sky. Each shot: while it charges (always exactly 4 seconds, with a slowly rising
 // whine, so players can learn the timing), its thin targeting beam sweeps back and forth over the ground around the player. When the charge
 // is complete the laser fires wherever the beam is pointing at that instant, through to the ground.
 // Players beat it by listening to the charge-up and being out from under the sweep when it peaks.
-const UFO_CHARGE_MS = 4000;
+const UFO_CHARGE_MS = 4000, UFO_LOCK_MS = 500;     // it holds still over the player for at least half a second before firing
+const BEAM_W = 0.075;                               // laser width: a quarter of the man's width (character heights)
 function sweepPoint(hz, now) {
   const c = hz.charge, t = (now - c.at) / 1000;
   c.centre += (charX - c.centre) * 0.02;                                 // the sweep drifts to follow the player
   return { x: clamp(c.centre + Math.sin(t * c.speed + c.phase) * charH * 1.3, 0, W), y: groundY };
 }
 function updateUfo(hz, now, circles, dt) {
-  if (hz.charge) hz.x -= hz.vx * dt * 0.7;                          // it slows almost to a hover while charging
-  hz.y = hz.baseY + Math.sin((now - hz.born) / 700) * charH * 0.3;
+  hz.y = hz.baseY + Math.sin((now - hz.born) / 700) * charH * 0.15;
+  hz.lightPh = (hz.lightPh || 0) + dt * (1 + 6 * (hz.chargeP || 0)) / 450;   // its lights spin faster as it charges
   const onScreen = hz.x > W * 0.08 && hz.x < W * 0.92;
   if (!hz.charge && hz.shots < hz.maxShots && onScreen && now >= hz.nextShot && G.lastSk) {
-    const ms = UFO_CHARGE_MS;
-    hz.charge = { at: now, ms, centre: charX, speed: 3 + Math.random() * 1.5, phase: Math.random() * 6.28 };
-    if (audio()) laserCharge(actx, ms / 1000);
+    hz.charge = { at: now }; hz.nextBeep = 0;
+    if (audio()) laserCharge(actx, UFO_CHARGE_MS / 1000);
   }
-  if (hz.charge) {
-    hz.charge.spot = sweepPoint(hz, now);
-    if (now - hz.charge.at >= hz.charge.ms) {
-      const x0 = hz.x, y0 = hz.y + hz.h * 0.25, gx = hz.charge.spot.x;
+  if (!hz.charge) return finishUfo(hz);
+  const C = hz.charge, age = now - C.at;
+  hz.chargeP = Math.min(1, age / UFO_CHARGE_MS);
+  if (!C.lockAt) {
+    // It homes in on the player like a hunter correcting its aim: overshoots, swings back, settles.
+    const k = 7, damp = 2.4, ax = k * (charX - hz.x) - damp * hz.vx * 1000;   // px/s²
+    hz.vx = clamp(hz.vx + ax * dt / 1e6, -charH * 3 / 1000, charH * 3 / 1000);
+    if (age >= UFO_CHARGE_MS - UFO_LOCK_MS && Math.abs(hz.x - charX) < charH * 0.12) { C.lockAt = now; hz.vx = 0; }   // over the player: hold still
+    else if (age >= UFO_CHARGE_MS && now >= hz.nextBeep) { hz.nextBeep = now + 260; tone(1500, 0.06, 'square', 0.06); }   // fully charged, still hunting
+  } else {
+    hz.vx = 0;
+    if (now - C.lockAt >= UFO_LOCK_MS && age >= UFO_CHARGE_MS) {
+      // FIRE: a beam straight down. Anyone under it is hit.
+      const bx = hz.x, by = hz.y + hz.h * 0.3, half = charH * BEAM_W / 2;
       if (audio()) laserShot(actx);
-      G.effects.push({ type:'laser', x1: x0, y1: y0, x2: gx, y2: groundY, born: now, dur: 260 });
-      G.effects.push({ type:'boom', x: gx, y: groundY, r: charH * 0.22, born: now + 70, dur: 600, text:'ZAP!' });
-      const beamHits = circles.some(cr => distToSegment(cr, x0, y0, gx, groundY) < cr.r + charH * 0.04);
-      if (beamHits) hurt(now, hz); else dodged(now, { ...hz, lane:'sky', x: gx });
-      hz.charge = null; hz.shots++; hz.nextShot = now + 1200 + Math.random() * 1000;
-      if (hz.shots >= hz.maxShots) hz.vx *= 3;                         // done: it speeds away off the screen
+      G.effects.push({ type:'beam', x: bx, y1: by, y2: groundY, born: now, dur: 550 });
+      G.effects.push({ type:'hole', x: bx, y: groundY, born: now + 120, dur: 5000 });
+      if (circles.some(cr => Math.abs(cr.x - bx) < half + cr.r && cr.y > by)) hurt(now, hz); else dodged(now, hz);
+      hz.charge = null; hz.chargeP = 0; hz.shots++; hz.nextShot = now + 1200 + Math.random() * 1000;
+      hz.vx = hz.dir * hz.cruise * (hz.shots >= hz.maxShots ? 4 : 1);   // drifts on; after its last shot it speeds away
     }
   }
-  if ((hz.dir > 0 && hz.x - hz.w > W) || (hz.dir < 0 && hz.x + hz.w < 0)) hz.done = true;
+  finishUfo(hz);
 }
+function finishUfo(hz) { if ((hz.x - hz.w > W && hz.vx > 0) || (hz.x + hz.w < 0 && hz.vx < 0)) hz.done = true; }
 function distToSegment(p, x1, y1, x2, y2) {
   const dx = x2 - x1, dy = y2 - y1, t = clamp(((p.x - x1) * dx + (p.y - y1) * dy) / (dx * dx + dy * dy), 0, 1);
   return Math.hypot(p.x - (x1 + t * dx), p.y - (y1 + t * dy));
 }
 // While a UFO charges: a glowing ball builds up under it, and its thin targeting beam sweeps the ground.
-function drawLockOn(c, now) {
-  for (const hz of G.hazards) {
-    if (!hz.charge || !hz.charge.spot) continue;
-    const q = Math.min(1, (now - hz.charge.at) / hz.charge.ms), pulse = 0.75 + 0.25 * Math.sin(now / (60 - 45 * q));
-    const gx = hz.x, gy = hz.y + hz.h * 0.3, r = charH * (0.03 + 0.09 * q) * pulse;
-    const grd = c.createRadialGradient(gx, gy, 0, gx, gy, r * 2.2);
-    grd.addColorStop(0, 'rgba(255,255,255,0.95)'); grd.addColorStop(0.35, `rgba(120,255,180,${0.5 + 0.4 * q})`); grd.addColorStop(1, 'rgba(120,255,180,0)');
-    c.fillStyle = grd; c.beginPath(); c.arc(gx, gy, r * 2.2, 0, 7); c.fill();
-    const flick = 0.5 + 0.5 * Math.sin(now / 25), sp = hz.charge.spot;
-    c.save(); c.strokeStyle = `rgba(255,60,60,${0.4 + 0.4 * flick})`; c.lineWidth = 2;
-    c.beginPath(); c.moveTo(gx, gy); c.lineTo(sp.x, sp.y); c.stroke();
-    c.fillStyle = `rgba(255,60,60,${0.5 + 0.3 * flick})`; c.beginPath(); c.ellipse(sp.x, sp.y, charH * 0.06, charH * 0.02, 0, 0, 7); c.fill();
-    c.restore();
-  }
-}
-
+function drawLockOn() {}   // (the glow is drawn on the UFO itself; there is no targeting beam any more)
 // ---------------------------------------------------------------- the masked brute
 // He stomps in from one side towards the player, winds up and swings his chainsaw or axe. Anyone within reach
 // when he swings is hit. A punch thrown towards him while he is close knocks him back; three knock him out.
@@ -1096,7 +1068,7 @@ function updateHazards(now, dt, sk) {
     }
     if (hz.lane === 'pack') {                                          // a pack: catch it before it reaches the ground
       hz.x += Math.sin((now - hz.born) / 700 + hz.sway) * charH * 0.0002 * dt;
-      if (G.state === 'play' && circles.some(cr => Math.hypot(cr.x - hz.x, cr.y - (hz.y + hz.h * 0.25)) < cr.r + charH * 0.14)) { collectPack(hz, now); continue; }
+      if (G.state === 'play' && circles.some(cr => Math.hypot(cr.x - hz.x, cr.y - (hz.y + hz.h * 0.25)) < cr.r + charH * 0.23)) { collectPack(hz, now); continue; }
       if (hz.y + hz.h / 2 >= groundY) { hz.done = true; G.effects.push({ type:'fizzle', x: hz.x, y: groundY - charH * 0.03, born: now, dur: 700, health: hz.kind === 'health' }); }
       continue;
     }
@@ -1172,9 +1144,13 @@ function updateHazards(now, dt, sk) {
         if (audio()) splat(actx);
         G.effects.push({ type:'splat', x: hz.x, y: groundY + 2, born: now, dur: 3000 });
       } else {
-        sfx.thud(); G.shake = hz.kind === 'elephant' ? 28 : 8;
-        if (hz.kind === 'elephant') setTimeout(sfx.thud, 90);
-        G.effects.push({ type:'dust', x: hz.x, y: groundY, born: now, w: hz.w, dur: 1400 });
+        const near = clamp(1 - Math.abs(hz.x - charX) / (W * 0.6), 0, 1);
+        if (hz.kind === 'weight') {
+          // 50 tons hitting the ground: the closer to the player, the louder the thud and the harder the earth shakes
+          if (audio()) bigThud(actx, 0.25 + 0.75 * near);
+          G.shake = 6 + 26 * near; G.quake = { at: now, len: 300 + 900 * near, amp: 4 + 14 * near }; if (near > 0.5) G.stagger = { at: now, amp: near };
+        } else { sfx.thud(); G.shake = 8; }
+        G.effects.push({ type:'dust', x: hz.x, y: groundY, born: now, w: hz.w * (hz.kind === 'weight' ? 1 + near : 1), dur: 1400 });
         G.effects.push({ type:'landed', hz:{ ...hz, done:false, flying:false, y: groundY - hz.h / 2, spin: 0, spinV: 0 }, born: now, dur: 700 });
       }
       dodged(now, hz);
@@ -1246,6 +1222,8 @@ function updateElephant(hz, now, dt) {
     }
   } else if (hz.state === 'charge') {
     step(190);
+    const over = G.flat && Math.abs(hz.x - charX) < hz.w * 0.75;          // stepping high over a man lying flat
+    hz.step = clamp((hz.step || 0) + (over ? 1 : -1) * dt / 150, 0, 1);
     if ((hz.dir > 0 && hz.x - hz.w / 2 > W) || (hz.dir < 0 && hz.x + hz.w / 2 < 0)) { hz.done = true; if (!hz.hit) dodged(now, { ...hz, x: clamp(hz.x, 40, W - 40) }); }
   }
 }
@@ -1332,13 +1310,52 @@ function onCourse(hz, circles, now) {
 }
 
 // No warning shadows: players judge from the flight of each thing where it will come down.
-function drawShadows() {}
+function drawShadows(c, now) {
+  // where a UFO laser hit: a scorched hole with a glowing rim that cools, smoke curling up (just for show)
+  for (const e of G.effects) {
+    if (e.type !== 'hole' || now < e.born) continue;
+    const age = now - e.born, fade = clamp((e.dur - age) / 1000, 0, 1), heat = clamp(1 - age / 2500, 0, 1), r = charH * 0.14;
+    c.save(); c.globalAlpha = fade;
+    const g = c.createRadialGradient(e.x, e.y, 0, e.x, e.y, r);
+    g.addColorStop(0, '#0b0806'); g.addColorStop(0.6, '#2a1d12'); g.addColorStop(0.85, `rgba(${Math.round(120 + 135 * heat)},${Math.round(50 + 70 * heat)},20,0.9)`); g.addColorStop(1, 'rgba(60,40,20,0)');
+    c.fillStyle = g; c.beginPath(); c.ellipse(e.x, e.y + 2, r, r * 0.3, 0, 0, 7); c.fill();
+    for (let i = 0; i < 5; i++) {
+      const t = (age / 1800 + i / 5) % 1, px = e.x + Math.sin(i * 2 + age / 500) * r * 0.4 + t * r * 0.6, py = e.y - t * charH * 0.6, rr = r * (0.25 + t * 0.6);
+      const sg = c.createRadialGradient(px, py, 0, px, py, rr); sg.addColorStop(0, `rgba(110,110,110,${0.35 * (1 - t)})`); sg.addColorStop(1, 'rgba(110,110,110,0)');
+      c.fillStyle = sg; c.beginPath(); c.arc(px, py, rr, 0, 7); c.fill();
+    }
+    c.restore();
+  }
+}
 
 function drawEffects(c, now) {
   G.effects = G.effects.filter(e => now - e.born < (e.dur || 900));
   for (const e of G.effects) {
     const t = (now - e.born) / 900;
     if (now < e.born) continue;                                         // not started yet (e.g. the boom after a laser)
+    if (e.type === 'beam') {                                            // the UFO's laser: a shifting, glowing light show
+      const q = (now - e.born) / e.dur, a = q < 0.15 ? q / 0.15 : 1 - (q - 0.15) / 0.85, w = charH * BEAM_W;
+      const hue = (now / 3) % 360, pw = 1 + 0.25 * Math.sin(now / 25);
+      c.save(); c.globalCompositeOperation = 'lighter';
+      for (const [mul, dh, al] of [[6, 0, 0.16], [3.5, 70, 0.28], [2, 150, 0.5], [1.2, 230, 0.75]]) {
+        c.strokeStyle = `hsla(${(hue + dh) % 360},100%,60%,${al * a})`; c.lineWidth = w * mul * pw;
+        c.beginPath(); c.moveTo(e.x, e.y1); c.lineTo(e.x, e.y2); c.stroke();
+      }
+      c.strokeStyle = `rgba(255,255,255,${0.95 * a})`; c.lineWidth = w * 0.5; c.beginPath(); c.moveTo(e.x, e.y1); c.lineTo(e.x, e.y2); c.stroke();
+      for (let i = 0; i < 28; i++) {                                     // sparkles spiralling down the beam
+        const f = (i / 28 + now / 700) % 1, y = e.y1 + (e.y2 - e.y1) * f, x = e.x + Math.sin(f * 20 + now / 60 + i) * w * 1.8;
+        c.fillStyle = `hsla(${(hue + i * 25) % 360},100%,75%,${a})`; c.beginPath(); c.arc(x, y, charH * 0.009, 0, 7); c.fill();
+      }
+      for (const [y, r] of [[e.y1, w * 3], [e.y2, w * 5]]) {             // dazzling flares at the UFO and where it hits
+        const g = c.createRadialGradient(e.x, y, 0, e.x, y, r); g.addColorStop(0, `rgba(255,255,255,${a})`); g.addColorStop(0.4, `hsla(${hue},100%,70%,${0.6 * a})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+        c.fillStyle = g; c.beginPath(); c.arc(e.x, y, r, 0, 7); c.fill();
+      }
+      for (let i = 0; i < 16; i++) {                                     // coloured sparks spraying from the impact
+        const ang = Math.PI * (1.05 + 0.9 * (i / 15)), d = charH * (0.05 + q * 0.4) * (0.6 + (i % 3) * 0.2);
+        c.fillStyle = `hsla(${(hue + i * 30) % 360},100%,70%,${a})`; c.beginPath(); c.arc(e.x + Math.cos(ang) * d, e.y2 + Math.sin(ang) * d + q * q * charH * 0.2, charH * 0.011, 0, 7); c.fill();
+      }
+      c.restore(); continue;
+    }
     if (e.type === 'laser') {
       const a = 1 - (now - e.born) / e.dur;
       c.save(); c.lineCap = 'round';
@@ -1382,7 +1399,6 @@ function drawEffects(c, now) {
     }
   }
 }
-
 // An explosion: a white-hot core and boiling orange fireball made of overlapping billows, flying sparks,
 // then thick dark smoke rolling upwards and spreading as it fades.
 function drawFireball(c, e, now) {
@@ -1485,6 +1501,11 @@ function gameFrame(now, dt) {
     if (G.carry && G.state === 'play') updateCarry(now, dt);
     if (G.flat) motion.duck = 0;
     sk = buildBody(); G.lastSk = sk;
+    if (G.flat && charging) {                                          // arms wrapped over his head while it thunders past
+      const h = sk.head, s = charH;
+      sk.lEl = { x: h.x - s * 0.1, y: h.y + s * 0.03 }; sk.lWr = { x: h.x - s * 0.03, y: h.y - s * 0.08 };
+      sk.rEl = { x: h.x + s * 0.1, y: h.y + s * 0.03 }; sk.rWr = { x: h.x + s * 0.03, y: h.y - s * 0.08 };
+    }
   }
   const layTarget = (G.knock && now - G.knock.at < 1100) || G.flat ? Math.PI / 2 : 0;
   if (G.flat && !G.knock) G.laySide = 1;
@@ -1503,17 +1524,12 @@ function gameFrame(now, dt) {
       if (!motion.ducking && motion.duck > 0.12) { motion.ducking = true; G.stats.ducks++; }
       if (motion.ducking && motion.duck < 0.05) motion.ducking = false;
       if (now >= G.nextSpawn && !window.__dgNoAuto) {   // tests can switch off random spawning
-        if (G.tutorial >= 3 && Math.random() < comboChance(now)) {
-          spawnCombo(now);
+        if (Math.random() < comboChance(now) && spawnCombo(now)) {
           G.nextSpawn = now + spawnGap(now) * 1.4;
         } else {
-          const lane = nextLane();
-          spawnLane(lane, now);
-          if ((G.tutorial <= 3 && G.tutorial > 0 && G.score < 3) || (lane === 'ufo' && !G.sawUfo) || (lane === 'bounce' && !G.sawPogo) || (lane === 'charge' && !G.sawEle) || (lane === 'villain' && !G.sawVillain)) flash(TEACH_TEXT[lane][0], TEACH_TEXT[lane][1], 3000, now);
-          if (lane === 'ufo') G.sawUfo = true;
-          if (lane === 'bounce') G.sawPogo = true;
-          if (lane === 'charge') G.sawEle = true;
-          if (lane === 'villain') G.sawVillain = true;
+          const kind = nextKind();
+          spawnLane(LANE_OF(kind), now, kind);
+          if (!G.seen[kind]) { G.seen[kind] = true; if (TEACH[kind]) flash(TEACH[kind][0], TEACH[kind][1], 3000, now); }   // a banner the first time
           G.nextSpawn = now + spawnGap(now);
         }
       }
@@ -1534,28 +1550,36 @@ function gameFrame(now, dt) {
 
   // draw
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  const shake = G.shake > 0.5 ? (Math.random() - 0.5) * G.shake : 0; G.shake *= 0.85;
+  const qk = G.quake && now - G.quake.at < G.quake.len ? G.quake.amp * (1 - (now - G.quake.at) / G.quake.len) : 0;   // the earth shaking
+  const shake = G.shake + qk > 0.5 ? (Math.random() - 0.5) * (G.shake + qk) : 0; G.shake *= 0.85;
   ctx.translate(shake, shake * 0.6);
   drawScenery(ctx, now);
   drawShadows(ctx, now);
   const k = sk || G.lastSk;
+  const manInFront = G.lay > 1 && G.hazards.some(h => h.lane === 'charge');   // lying flat, nearer to us: the elephant passes behind and over him
+  const drawMan = () => {
   if (k) {
     ctx.fillStyle = 'rgba(0,0,0,0.2)';                                  // the character's own shadow
     ctx.beginPath(); ctx.ellipse(k.hip.x, groundY + 4, charH * 0.16 / (1 + motion.lift / charH * 3), charH * 0.03, 0, 0, 7); ctx.fill();
-    const mood = now - (G.hurtAt || -1e9) < 1000 ? 'pain' : now < (G.dangerUntil || 0) ? 'alarm' : 'neutral';
+    const mood = manInFront || now - (G.hurtAt || -1e9) < 1000 ? 'pain' : now < (G.dangerUntil || 0) ? 'alarm' : 'neutral';   // eyes squeezed shut as it goes over
     if (now < (G.boostUntil || 0)) {                                    // super jump: a faint golden glow
       const gl = ctx.createRadialGradient(k.hip.x, groundY - motion.lift - charH * 0.5, 0, k.hip.x, groundY - motion.lift - charH * 0.5, charH * 0.7);
       gl.addColorStop(0, `rgba(255,220,80,${0.25 + 0.1 * Math.sin(now / 150)})`); gl.addColorStop(1, 'rgba(255,220,80,0)');
       ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(k.hip.x, groundY - motion.lift - charH * 0.5, charH * 0.7, 0, 7); ctx.fill();
     }
     ctx.save();
+    if (manInFront) ctx.translate(0, charH * 0.04);
+    if (G.stagger && now - G.stagger.at < 700) { const px = k.hip.x, a = Math.sin((now - G.stagger.at) / 60) * 0.07 * G.stagger.amp * (1 - (now - G.stagger.at) / 700); ctx.translate(px, groundY); ctx.rotate(a); ctx.translate(-px, -groundY); }   // staggering as the ground shakes
     if (G.lay > 0.01) { const px = k.hip.x, py = groundY; ctx.translate(px, py - charH * 0.07 * Math.sin(G.lay)); ctx.rotate(G.lay * G.laySide); ctx.translate(-px, -py); }
     drawCharacter(ctx, k, selected(), now < G.safeUntil && !G.carry, mood, now, G.state === 'play' || G.state === 'ending' ? LIVES - G.lives : 0);
     if (now < (G.headSplat || 0)) drawSplat(ctx, k.head.x + k.head.r * 0.25, k.head.y - k.head.r * 0.75, charH, clamp((G.headSplat - now) / 800, 0, 1), true);
     ctx.restore();
   }
+  };
+  if (!manInFront) drawMan();
   if (G.villain) drawVillain(ctx, G.villain, charH, now);
   for (const hz of G.hazards) drawHazard(ctx, hz, charH, now);
+  if (manInFront) drawMan();
   drawLockOn(ctx, now);
   drawEffects(ctx, now);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -1750,4 +1774,4 @@ initVision()
 requestAnimationFrame(loop);
 
 // Hooks for automated testing.
-window.__dg = { G, B, motion, buildBody, nextLane: () => nextLane(), spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed), spawnLane: (lane, kind) => spawnLane(lane, performance.now(), kind) };
+window.__dg = { G, B, motion, buildBody, nextLane: () => nextLane(), nextKind: () => nextKind(), spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed), spawnLane: (lane, kind) => spawnLane(lane, performance.now(), kind) };

@@ -2,7 +2,7 @@
 
 A full-body camera exercise game. A cartoon character copies your movements in real time:
 
-- **Step aside** from things falling from the sky (bomb, 25-ton weight, anvil, diving plane) and from where the kid on the pogo stick is about to land.
+- **Step aside** from things falling from the sky (bomb, 50-ton weight, anvil, diving plane) and from where the kid on the pogo stick is about to land.
 - **Lie flat** when the elephant charges. Catch the rare health and energy packs before they reach the ground.
 - **Jump** over things racing along the ground: six vehicles (a sports car, a muscle car, a convertible, a jeep, an old pickup and an old Beetle, each at its own speed), a pig and a bouncing tire. A 6-inch hop clears every vehicle.
 - **Duck** under things flying at your head (eagle, missile, arrow, tomahawk, boomerang) and jump the eagle or boomerang when they come in low.

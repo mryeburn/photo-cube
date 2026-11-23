@@ -13,10 +13,10 @@ export { preloadVehicles, VEHICLES };
 
 export const HAZARDS = {
   bomb:     { lane:'sky', scale:1.4, w:0.26, h:0.32, speed:0.95, draw:drawBomb, explodes:true },
-  weight:   { lane:'sky', scale:1.5, w:0.42, h:0.32, speed:1.15, draw:drawWeight },
+  weight:   { lane:'sky', scale:2.4, w:0.42, h:0.32, speed:1.15, draw:drawWeight },
   elephant: { lane:'charge', scale:2.7, w:0.56, h:0.53, speed:1, draw:drawElephant },   // charges, rears up, charges again: lie flat
-  health:   { lane:'pack', scale:1.6, w:0.16, h:0.24, speed:1, noPick:true, draw:(c, s, t) => drawPack(c, s, t, true) },    // catch: one life back
-  energy:   { lane:'pack', scale:1.6, w:0.16, h:0.24, speed:1, noPick:true, draw:(c, s, t) => drawPack(c, s, t, false) },   // catch: super jumps
+  health:   { lane:'pack', scale:2.7, w:0.16, h:0.24, speed:1, noPick:true, draw:(c, s, t) => drawPack(c, s, t, true) },    // catch: one life back
+  energy:   { lane:'pack', scale:2.7, w:0.16, h:0.24, speed:1, noPick:true, draw:(c, s, t) => drawPack(c, s, t, false) },   // catch: super jumps
   anvil:    { lane:'sky', scale:1.4, w:0.38, h:0.22, speed:1.2,  draw:drawAnvil },
   plane:    { lane:'sky', scale:1.6, w:0.52, h:0.32, speed:1.05, hitR:0.24, dives:true, draw:drawPlane },
   // Six different vehicles (see vehicles.js), each with its own speed. Ground-lane picks choose 'car', and the
@@ -27,7 +27,7 @@ export const HAZARDS = {
   tire:     { lane:'ground', scale:1.3, w:0.26, h:0.26, speed:2.0, draw:drawTire, bounce:true },
   eagle:    { lane:'air', scale:1.73, w:0.44, h:0.2, speed:2.25, hitR:0.12, swoops:true, draw:drawEagle },   // swoops down from high up
   missile:  { lane:'air', twoPass:true, scale:1.5, w:0.5, h:0.12, speed:3.2, draw:drawMissile },
-  arrow:    { lane:'air', scale:1.3, w:0.52, h:0.07, speed:7.8,  draw:drawArrow },
+  arrow:    { lane:'air', scale:1.3, w:0.52, h:0.07, speed:5.2,  draw:drawArrow },
   ufo:      { lane:'ufo', scale:1.5, w:0.5, h:0.24, speed:0.5, draw:drawUfo },
   tomahawk: { lane:'air', scale:1.0, w:0.33, h:0.14, speed:2.2, arc:true, spins:true, shaped:true, draw:drawTomahawk },   // thrown, spinning end over end
   poop:     { lane:'sky', scale:1, w:0.07, h:0.09, speed:1.3, noPick:true, splat:true, draw:drawPoop },   // the eagle's (only from an eagle)
@@ -81,7 +81,7 @@ function drawBomb(c, s, t) {
     c.fillStyle = bounce; c.fillRect(-0.12 * s, 0, 0.24 * s, 0.17 * s);
     c.restore(); }
 }
-// A cast-iron 25-ton weight: dark metal with a rough sheen, bevelled edges, an iron ring on top, raised lettering.
+// A cast-iron 50-ton weight: dark metal with a rough sheen, bevelled edges, an iron ring on top, raised lettering.
 function drawWeight(c, s) {
   c.strokeStyle = '#2b2f34'; c.lineWidth = 0.028 * s; c.beginPath(); c.arc(0, -0.105 * s, 0.065 * s, Math.PI * 1.05, Math.PI * 1.95); c.stroke();   // ring
   c.strokeStyle = 'rgba(255,255,255,0.35)'; c.lineWidth = 2; c.beginPath(); c.arc(0, -0.105 * s, 0.07 * s, Math.PI * 1.15, Math.PI * 1.45); c.stroke();
@@ -92,7 +92,7 @@ function drawWeight(c, s) {
   c.fillStyle = 'rgba(0,0,0,0.3)'; c.fillRect(-0.21 * s, 0.14 * s, 0.42 * s, 0.02 * s);
   c.save(); c.clip(body); c.fillStyle = 'rgba(0,0,0,0.12)'; for (let i = 0; i < 40; i++) { c.beginPath(); c.arc(((i * 37) % 40 / 40 - 0.5) * 0.4 * s, ((i * 23) % 40 / 40 - 0.4) * 0.26 * s, 0.006 * s, 0, 7); c.fill(); } c.restore();   // pitted iron
   c.font = `900 ${0.085 * s}px "Trebuchet MS", sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
-  c.fillStyle = 'rgba(0,0,0,0.5)'; c.fillText('25 TON', 0.003 * s, 0.047 * s); c.fillStyle = '#c9ced3'; c.fillText('25 TON', 0, 0.042 * s);
+  c.fillStyle = 'rgba(0,0,0,0.5)'; c.fillText('50 TON', 0.003 * s, 0.047 * s); c.fillStyle = '#c9ced3'; c.fillText('50 TON', 0, 0.042 * s);
   c.save(); c.clip(body);
   for (const [x, w, l] of [[-0.13, 0.004, 0.09], [-0.1, 0.007, 0.05], [-0.04, 0.005, 0.12], [0.02, 0.003, 0.07], [0.06, 0.006, 0.1], [0.11, 0.004, 0.06], [0.135, 0.008, 0.04]]) {
     const g = c.createLinearGradient(0, -0.1 * s, 0, (-0.1 + l) * s); g.addColorStop(0, 'rgba(140,70,25,0.4)'); g.addColorStop(1, 'rgba(140,70,25,0)'); c.fillStyle = g; c.fillRect(x * s, -0.1 * s, w * s, l * s);   // rust run-off
@@ -115,7 +115,7 @@ function drawElephant(c, s, t, hz) {
   [[-0.15, 0, 0.8], [-0.05, 1.7, 1], [0.07, 3.1, 0.8], [0.16, 4.4, 1]].forEach(([x, ph, tone]) => {
     c.save(); c.translate(x * s, 0.08 * s);
     c.rotate(rear > 0.3 && x > 0 ? -0.8 + Math.sin(t / 110 + ph) * 0.45 : gait ? Math.sin(t / gait + ph) * 0.55 : Math.sin(t / 400 + ph) * 0.08);
-    c.scale(1, 1.7);                                                              // long legs, so a man lying flat fits under its belly
+    c.scale(1, 1.7 - 0.45 * (hz && hz.step || 0));                               // long legs; lifted high stepping over a man lying flat
     c.beginPath(); c.moveTo(-0.04 * s, 0); c.lineTo(-0.038 * s, 0.13 * s); c.quadraticCurveTo(0, 0.145 * s, 0.038 * s, 0.13 * s); c.lineTo(0.04 * s, 0); c.closePath();
     c.fillStyle = skin(0, 0.06 * s, 0.07 * s); c.globalAlpha = tone; c.fill(); c.globalAlpha = 1; c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
     for (let k = 0; k < 3; k++) wrinkle(-0.03 * s, (0.04 + k * 0.03) * s, 0.03 * s, (0.04 + k * 0.03) * s, 0.01 * s);
@@ -590,6 +590,9 @@ export function drawSplat(c, x, y, s, alpha, onHead = false) {
 // battery (yellow, with a lightning bolt, glowing). Drawn with the box at +0.06 and the canopy above.
 function drawPack(c, s, t, health) {
   const sway = Math.sin(t / 700) * 0.12;
+  const halo = c.createRadialGradient(0, 0.02 * s, 0, 0, 0.02 * s, 0.13 * s), pulse = 0.35 + 0.2 * Math.sin(t / 180);
+  halo.addColorStop(0, health ? `rgba(255,120,120,${pulse})` : `rgba(255,220,60,${pulse})`); halo.addColorStop(0.5, health ? `rgba(255,255,255,${pulse * 0.5})` : `rgba(255,240,150,${pulse * 0.5})`); halo.addColorStop(1, 'rgba(255,255,255,0)');
+  c.fillStyle = halo; c.beginPath(); c.arc(0, 0.02 * s, 0.13 * s, 0, 7); c.fill();
   c.save(); c.rotate(sway * 0.5);
   // canopy: striped panels, shaded underneath
   const panels = health ? ['#e03131', '#f8f9fa'] : ['#fcc419', '#212529'];
@@ -688,7 +691,13 @@ export function drawWreck(c, x, y, s, age, dir) {
 
 // A flying saucer: polished metal shaded top to bottom, a darker rim band with a ring of rotating lights,
 // a glowing underside, and a glass dome with a reflection and a grey alien pilot.
-function drawUfo(c, s, t) {
+function drawUfo(c, s, t, hz) {
+  const p = hz && hz.chargeP || 0, ph = hz && hz.lightPh != null ? hz.lightPh : t / 450, pulse = 0.6 + 0.4 * Math.sin(ph * 3);
+  if (p > 0) {                                                                      // a radiant halo building as the laser charges
+    const halo = c.createRadialGradient(0, 0.01 * s, 0.05 * s, 0, 0.01 * s, (0.3 + 0.25 * p) * s);
+    halo.addColorStop(0, `rgba(${Math.round(150 + 105 * p)},255,${Math.round(190 + 65 * p)},${(0.2 + 0.6 * p) * pulse})`); halo.addColorStop(1, 'rgba(150,255,200,0)');
+    c.fillStyle = halo; c.beginPath(); c.arc(0, 0.01 * s, (0.3 + 0.25 * p) * s, 0, 7); c.fill();
+  }
   // glow beneath
   const under = c.createRadialGradient(0, 0.06 * s, 0, 0, 0.06 * s, 0.22 * s);
   under.addColorStop(0, 'rgba(150,255,210,0.55)'); under.addColorStop(1, 'rgba(150,255,210,0)');
@@ -728,11 +737,18 @@ function drawUfo(c, s, t) {
   // ring of rotating lights round the rim: bright at the front, dim going behind
   const colours = ['#ff4d4d', '#ffe066', '#4dd4ff', '#69db7c'];
   for (let i = 0; i < 12; i++) {
-    const a = i * Math.PI / 6 + t / 450, depth = Math.sin(a);
+    const a = i * Math.PI / 6 + ph, depth = Math.sin(a);
     if (depth < -0.25) continue;
     const x = Math.cos(a) * 0.23 * s, y = 0.016 * s + depth * 0.016 * s, r = (0.013 + 0.008 * depth) * s;
-    const g = c.createRadialGradient(x, y, 0, x, y, r * 1.8); g.addColorStop(0, '#fff'); g.addColorStop(0.3, colours[i % 4]); g.addColorStop(0.55, colours[i % 4]); g.addColorStop(1, 'rgba(255,255,255,0)');
+    const col = p > 0.55 ? '#ffffff' : colours[i % 4];                                   // the lights turn white as it charges
+    const g = c.createRadialGradient(x, y, 0, x, y, r * 1.8); g.addColorStop(0, '#fff'); g.addColorStop(0.3, col); g.addColorStop(0.55, col); g.addColorStop(1, 'rgba(255,255,255,0)');
     c.globalAlpha = 0.4 + 0.6 * Math.max(0, depth); c.fillStyle = g; c.beginPath(); c.arc(x, y, r * 1.8, 0, 7); c.fill();
   }
   c.globalAlpha = 1;
+  if (p > 0) {                                                                         // the emitter underneath flaring up
+    const er = (0.008 + 0.035 * p) * s * (hz.charge && hz.charge.lockAt ? 1.2 + 0.3 * Math.sin(t / 30) : pulse);
+    const eg = c.createRadialGradient(0, 0.065 * s, 0, 0, 0.065 * s, er * 2);
+    eg.addColorStop(0, '#ffffff'); eg.addColorStop(0.4, `rgba(180,255,230,${0.6 + 0.4 * p})`); eg.addColorStop(1, 'rgba(120,255,200,0)');
+    c.fillStyle = eg; c.beginPath(); c.arc(0, 0.065 * s, er * 2, 0, 7); c.fill();
+  }
 }
