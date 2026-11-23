@@ -35,7 +35,7 @@ const SOUNDS = {
   bomb:     { base:0.22, whistle:true, fizz:true },
   weight:   { base:0.22, whistle:true },
   anvil:    { base:0.22, whistle:true },
-  elephant: { base:0.22, whistle:true, trumpet:true },
+  elephant: { base:1.1,  floor:0.45 },                                     // stomps and trumpets: see play()
   plane:    { base:0.22, whistle:true, engine:[220, 'sawtooth', 900] },
   // the vehicles: the same real engine recording, tuned for each (a higher scream, a deeper rumble...)
   porsche:  { base:1.0,  revs:true, floor:0.3, pitch:1.4 },
@@ -103,6 +103,8 @@ export function createVoice(a, kind) {
       o.connect(g).connect(out); o.start(at); lfo.start(at); o.stop(at + 0.5); lfo.stop(at + 0.5);
       burst('lowpass', 200, 0.08, 1.2);
     },
+    stomp: () => { burst('lowpass', 110, 0.3, 2.4); ping('sine', 70, 38, 0.28, 1.4); },   // a huge foot hitting the ground
+    trumpet: () => trumpet(a, pan || a.destination, 1.8, 1.15),
     whirr: () => burst('bandpass', 560 + Math.random() * 120, 0.06, 1.2),   // each turn of a boomerang
     squeal: () => squeal(a, out, 0.45 + Math.random() * 0.25, 0.9),
   };

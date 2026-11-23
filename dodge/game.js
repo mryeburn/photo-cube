@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '3.2';
+const VERSION = '3.3';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -123,7 +123,7 @@ function track(now) {
 // works exactly as it does with a real player: left/right run, Space jumps (as high as a 6 inch jump, which
 // clears every vehicle), Down ducks (as low as a 20 cm duck).
 let keyMode = false;
-const keys = { left:false, right:false, duck:false, jumpAt:null, x:0, last:0 };
+const keys = { left:false, right:false, duck:false, flat:false, jumpAt:null, x:0, last:0, lastDownTap:0 };
 const STAND = { 0:[.5,.2], 2:[.51,.19], 5:[.49,.19], 7:[.52,.2], 8:[.48,.2], 11:[.56,.3], 12:[.44,.3], 13:[.58,.42], 14:[.42,.42],
   15:[.58,.53], 16:[.42,.53], 23:[.54,.55], 24:[.46,.55], 25:[.54,.72], 26:[.46,.72], 27:[.54,.88], 28:[.46,.88] };
 function keyPose(now) {
@@ -132,7 +132,7 @@ function keyPose(now) {
   keys.x = clamp(keys.x - run * dt * 0.4, -0.75, 0.75);               // the camera picture is mirrored on screen
   let jump = 0;
   if (keys.jumpAt != null) { const u = (now - keys.jumpAt) / 500; if (u < 1) jump = 0.088 * Math.sin(Math.PI * u); else if (u > 1.5) keys.jumpAt = null; }
-  const duck = keys.duck && !jump ? 20 / 170 / 0.77 : 0, bodyH = 0.71;
+  const duck = keys.flat ? 0.75 : keys.duck && !jump ? 20 / 170 / 0.77 : 0, bodyH = 0.71;   // flat: head right down
   return Array.from({ length: 33 }, (_, i) => {
     const p = STAND[i]; if (!p) return { x:.5, y:.5, visibility:.1 };
     let px = p[0] + keys.x, py = p[1] + 0.15 - jump * bodyH;
@@ -148,10 +148,13 @@ function setKey(name, down) {
 const KEYMAP = { ArrowLeft:'left', ArrowRight:'right', ArrowDown:'duck', ' ':'jump', Spacebar:'jump', ArrowUp:'jump' };
 for (const type of ['keydown', 'keyup']) window.addEventListener(type, e => {
   if (!keyMode || screen !== 'game' || !KEYMAP[e.key]) return;
-  e.preventDefault(); if (!e.repeat || type === 'keyup') setKey(KEYMAP[e.key], type === 'keydown');
+  e.preventDefault();
+  if (e.key === 'ArrowDown' && type === 'keydown' && !e.repeat) { const t = performance.now(); if (t - keys.lastDownTap < 350) keys.flat = true; keys.lastDownTap = t; }
+  if (e.key === 'ArrowDown' && type === 'keyup') keys.flat = false;
+  if (!e.repeat || type === 'keyup') setKey(KEYMAP[e.key], type === 'keydown');
 });
 function setKeyMode(on) {
-  keyMode = on; Object.assign(keys, { left:false, right:false, duck:false, jumpAt:null, x:0, last:0 }); lm = null;
+  keyMode = on; Object.assign(keys, { left:false, right:false, duck:false, flat:false, jumpAt:null, x:0, last:0, lastDownTap:0 }); lm = null;
   $('touchPad').hidden = !on; $('handsHint').hidden = on;
 }
 for (const b of document.querySelectorAll('#touchPad button')) {
@@ -216,13 +219,13 @@ function updateMotion(now) {
   const dts = Math.min((now - (motion.t || now)) / 1000, 0.05); motion.t = now;
   // Jump: when the head starts to rise, the character leaps in a cartoon arc. How high depends on how high
   // the player jumps (measured while rising), up to PEAK_MAX; a 6 inch jump clears a car.
-  if (!motion.jump && motion.canJump && motion.up > 0.025) { motion.jump = { t0: now, peak: 0 }; motion.canJump = false; }
+  if (!motion.jump && motion.canJump && motion.up > 0.025) { motion.jump = { t0: now, peak: 0, boost: now < (G.boostUntil || 0) }; motion.canJump = false; }
   if (motion.jump) {
     const j = motion.jump;
     // Height is measured while rising (first 0.3 s); the length of the jump never changes, so the
     // fall takes exactly as long as the rise.
-    if (now - j.t0 < 300) j.peak = Math.max(j.peak, Math.min(motion.up * JUMP_GAIN, PEAK_MAX) * charH);
-    const u = (now - j.t0) / (AIR_TIME * 1000);
+    if (now - j.t0 < 300) j.peak = Math.max(j.peak, Math.min(motion.up * JUMP_GAIN, PEAK_MAX) * charH * (j.boost ? 2 : 1));   // super jump: twice as high
+    const u = (now - j.t0) / (AIR_TIME * 1000 * (j.boost ? 1.41 : 1));                                                       // (and a little longer in the air)
     if (u >= 1) { motion.jump = null; motion.lift = 0; }
     else motion.lift = 4 * j.peak * u * (1 - u);
   }
@@ -612,6 +615,10 @@ function vehicleHits(cir, hz) {
 function circleHitsBox(cir, hz) {
   if (HAZARDS[hz.kind].shaped) return shapeHits(cir, hz);
   if (HAZARDS[hz.kind].vehicle) return vehicleHits(cir, hz);
+  if (hz.lane === 'charge') {                                          // the elephant's body: from its belly up (lying flat is under it)
+    const dx = Math.max(Math.abs(cir.x - hz.x) - hz.w * 0.42, 0), top = groundY - charH * 1.25, bot = groundY - charH * 0.38;
+    const dy = Math.max(top - cir.y, 0, cir.y - bot); return dx * dx + dy * dy < cir.r * cir.r;
+  }
   if (HAZARDS[hz.kind].pogo) {                                         // the kid and his pogo stick: a tall, narrow shape
     const s = charH * HAZARDS.pogo.scale; return distToSegment(cir, hz.x, hz.y + 0.35 * s, hz.x, hz.y - 0.28 * s) < cir.r + 0.075 * s;
   }
@@ -649,13 +656,16 @@ function setBanner(text, small = '') {
   if (G.banner !== html) { G.banner = html; $('banner').innerHTML = html; }
 }
 function flash(text, small, ms, now) { setBanner(text, small); G.bannerUntil = now + ms; }
-function renderHearts() { $('hearts').textContent = '♥'.repeat(G.lives) + '♡'.repeat(LIVES - G.lives); }
+function renderHearts() {
+  $('hearts').textContent = '♥'.repeat(G.lives) + '♡'.repeat(LIVES - G.lives);
+  $('healthFill').style.width = (G.lives / LIVES * 100) + '%'; $('healthBar').classList.toggle('low', G.lives === 1);
+}
 
 function startGame() {
   audio(); resize(); silenceAll();
   try { preloadVehicles(charH); } catch (e) { console.error(e); }
   stopVillain();
-  Object.assign(G, { sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, headSplat:0, stats:{ jumps:0, ducks:0, steps:0 },
+  Object.assign(G, { sawEle:false, knock:null, carry:null, flat:false, lay:0, laySide:1, boostUntil:0, nextHealth:performance.now() + 60000, nextEnergy:performance.now() + 60000 + 30000 + Math.random() * 60000, sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, headSplat:0, stats:{ jumps:0, ducks:0, steps:0 },
     phaseStart:performance.now(), lastTick:-1, bannerUntil:0, shake:0, lastSk:null });
   motion.airborne = false; motion.ducking = false;
   $('scoreNum').textContent = '0'; $('timeNum').textContent = '0:00'; renderHearts();
@@ -674,7 +684,7 @@ const speedUp = now => 0.8 + 0.55 * ramp(now) + Math.min(0.25, after3(now) / 600
 // Two things at once (e.g. a weight landing as a car arrives): none before 70 s, about half of them by 3 min.
 const comboChance = now => clamp((elapsed(now) - 70) / 110, 0, 1) * 0.5;
 
-function spawn(lane, now, kind = null, aimed = false) {
+function spawn(lane, now, kind = null, aimed = false, dir = null) {
   if (lane === 'villain') return spawnVillain(now);
   kind = kind || BY_LANE[lane][Math.floor(Math.random() * BY_LANE[lane].length)];
   if (kind === 'car') kind = VEHICLE_KINDS[Math.floor(Math.random() * VEHICLE_KINDS.length)];   // one of six vehicles
@@ -694,6 +704,17 @@ function spawn(lane, now, kind = null, aimed = false) {
     hz.x = hz.dir > 0 ? -w : W + w; hz.baseY = H * 0.2 + Math.random() * H * 0.08; hz.y = hz.baseY;
     hz.vx = hz.dir * sp; hz.vy = 0; hz.shots = 0; hz.nextShot = now + 1400 + Math.random() * 800; hz.aim = null;
     const t = elapsed(now); hz.maxShots = t < 120 ? 1 : t < 180 ? 2 : 3;   // more shots per visit as the game goes on
+  } else if (lane === 'charge') {
+    // The elephant charges in from one side and stops short of the player (on screen, so they can see it)...
+    let dr = Math.random() < 0.5 ? 1 : -1;
+    const stopGap = w / 2 + charH * 1.3;
+    if ((dr > 0 ? charX - stopGap : W - charX - stopGap) < W * 0.12) dr = -dr;
+    hz.dir = dr; hz.x = dr > 0 ? -w / 2 : W + w / 2; hz.y = groundY - ELE_FOOT * s * d.scale; hz.vy = 0;
+    hz.stopX = charX - dr * stopGap; hz.state = 'run'; hz.stateAt = now; hz.rear = 0; hz.nextStep = now;
+    hz.vx = dr * charH * 2.0 * speedUp(now) / 1000;
+  } else if (lane === 'pack') {
+    // A health or energy pack drifts down under a parachute somewhere across the screen (not aimed).
+    hz.x = W * (0.12 + Math.random() * 0.76); hz.y = -h; hz.vx = 0; hz.vy = charH * 0.5 / 1000; hz.sway = Math.random() * 6;
   } else if (lane === 'bounce') {
     // A kid on a pogo stick bounces straight across the screen in 4 or 5 hops, his feet rising to just over the
     // man's head. He doesn't aim: watch his hops and step out of the way.
@@ -709,7 +730,7 @@ function spawn(lane, now, kind = null, aimed = false) {
     if (d.tumbles) { hz.spin = (Math.random() - 0.5) * 1.2; hz.spinV = (Math.random() < 0.5 ? -1 : 1) * (0.4 + Math.random() * 0.5) / 1000; }   // rolls as it falls
     hz.y = -h; hz.vx = 0; hz.vy = (d.fallV0 ? d.fallV0 / 1000 : FALL_V0) * s; hz.g = fallGravity(kind, now);
   } else {
-    hz.dir = Math.random() < 0.5 ? 1 : -1;
+    hz.dir = dir || (Math.random() < 0.5 ? 1 : -1);
     let lead = sp * 150;                                                          // starts just off screen
     if (d.vehicle) {
       // Fast cars start further off screen (you hear the engine first), so there's always at least a second
@@ -889,6 +910,7 @@ function skyTarget(w, aimed) {
   if (charX + side * off < w / 2 || charX + side * off > W - w / 2) side = -side;   // no room that side: use the other
   return clamp(charX + side * off, w / 2, W - w / 2);
 }
+const ELE_FOOT = 0.327;                                        // the elephant's feet, below its middle (drawing units)
 const POGO_RISE = 1.25, POGO_FOOT = 0.35 * 1.6;                  // hop height (character heights, feet); centre to rubber foot                       // the pogo kid's hops: share of the ground height; centre to rubber foot
 const FALL_V0 = 0.25 / 1000;                                   // starting fall speed, character heights per ms
 const fallGravity = (kind, now) => 0.9 * charH / 1e6 * (HAZARDS[kind].speed * speedUp(now)) ** 2 * (HAZARDS[kind].gMul || 1);   // px per ms²
@@ -914,19 +936,22 @@ function nextLane() {
   const ufos = G.hazards.filter(h => h.lane === 'ufo').length, t = elapsed(performance.now());
   if (t > 45 && ufos < (t > 240 ? 2 : 1) && Math.random() < 0.13) return 'ufo';
   if (t > 60 && !G.hazards.some(h => h.lane === 'bounce') && Math.random() < 0.12) return 'bounce';   // the pogo kid, after a minute
+  if (t > 40 && !G.hazards.some(h => h.lane === 'charge') && Math.random() < 0.1) return 'charge';     // the charging elephant, after 40 s
   // (the masked brute is on hold for now; spawnVillain() is kept for when he returns)
   const r = Math.random();
   return r < 0.38 ? 'sky' : r < 0.69 ? 'ground' : 'air';
 }
-const TEACH_TEXT = { bounce:['Pogo kid!', 'Watch his hops and step aside from where he will land'], ufo:['UFO!', 'Listen: when the charging sound peaks, it fires where its beam is pointing'],
+const TEACH_TEXT = { charge:['Elephant!', 'Get down flat when it charges (carefully!)'], bounce:['Pogo kid!', 'Watch his hops and step aside from where he will land'], ufo:['UFO!', 'Listen: when the charging sound peaks, it fires where its beam is pointing'],
   villain:['Punch him!', 'Throw a punch towards him. Three punches knock him out'],
    sky:['Step aside!', 'Move left or right out of the shadow'], ground:['Jump!', 'Jump over it when it reaches you'], air:['Duck!', 'Crouch down so it flies over your head'] };
 
 function hurt(now, hz) {
   if (now < G.safeUntil || G.state !== 'play') return;
   G.lives--; renderHearts(); G.safeUntil = now + SAFE_MS; G.shake = 12; G.hurtAt = now;
+  G.knock = { at: now, side: Math.sign(charX - (hz.x ?? charX)) || 1 };   // knocked off his feet, away from what hit him
+  G.nextHealth = Math.max(G.nextHealth || 0, now + 5000 + Math.random() * 20000);
   if (hz.kind === 'poop') { hz.done = true; G.headSplat = now + 4000; }   // splat! on his head
-  else if (hz.lane !== 'ufo' && hz.lane !== 'villain') { hz.hit = true; hz.vy = -0.0008 * charH * 1000 / 1000 * 0.9; hz.vx = -hz.vx * 0.4; hz.flying = true; }
+  else if (['sky', 'ground', 'air', 'bounce'].includes(hz.lane)) { hz.hit = true; hz.vy = -0.0008 * charH * 1000 / 1000 * 0.9; hz.vx = -hz.vx * 0.4; hz.flying = true; }
   // The first two injuries get a short groan; the third and final one gets the full scream.
   sfx.ouch(); if (audio()) { if (G.lives > 0) groan(actx, G.lives === LIVES - 1 ? 1 : 2); else scream(actx); }
   G.effects.push({ type:'text', text:'OUCH!', x: charX, y: groundY - charH * 1.05, born: now, color:'#ff5d5d' });
@@ -1063,6 +1088,18 @@ function updateHazards(now, dt, sk) {
       if (hz.g && !hz.flying) hz.vy += hz.g * dt;
       hz.x += hz.vx * dt; hz.y += hz.vy * dt;
     }
+    if (hz.carrying || hz.released) {                                  // an eagle flying off (with the man, or having dropped him)
+      hz.x += hz.vx * dt; hz.y += hz.vy * dt; hz.flapPh = (hz.flapPh || 0) + dt / 40;
+      if (hz.voice) { try { hz.voice.update(0.6, (hz.x - charX) / (W * 0.5), 0, hz, now); } catch (e) { silence(hz); } }
+      if (hz.x < -hz.w * 2 || hz.x > W + hz.w * 2 || hz.y < -hz.h * 3) hz.done = true;
+      continue;
+    }
+    if (hz.lane === 'pack') {                                          // a pack: catch it before it reaches the ground
+      hz.x += Math.sin((now - hz.born) / 700 + hz.sway) * charH * 0.0002 * dt;
+      if (G.state === 'play' && circles.some(cr => Math.hypot(cr.x - hz.x, cr.y - (hz.y + hz.h * 0.25)) < cr.r + charH * 0.14)) { collectPack(hz, now); continue; }
+      if (hz.y + hz.h / 2 >= groundY) { hz.done = true; G.effects.push({ type:'fizzle', x: hz.x, y: groundY - charH * 0.03, born: now, dur: 700, health: hz.kind === 'health' }); }
+      continue;
+    }
     if (HAZARDS[hz.kind].spins) hz.spin += hz.dir * dt * 0.005;      // a tomahawk turns end over end, slowly enough to see
     if (hz.spinV && !hz.flying) hz.spin += hz.spinV * dt;              // the elephant rolls as it falls
     if (HAZARDS[hz.kind].bounce && !hz.flying) {
@@ -1079,7 +1116,12 @@ function updateHazards(now, dt, sk) {
       try { hz.voice.update(prox, (hz.x - charX) / (W * 0.5), clamp((hz.y + hz.h) / groundY, 0, 1), hz, now); }
       catch (e) { silence(hz); console.error(e); }                   // a sound problem must never stop the game
     }
-    if (!hz.hit && circles.some(cr => circleHitsBox(cr, hz))) { hurt(now, hz); continue; }
+    if (!hz.hit && circles.some(cr => circleHitsBox(cr, hz))) {
+      if (hz.kind === 'eagle' && hz.talon > 0.5 && !G.carry && !G.knock && now >= G.safeUntil && G.state === 'play') startCarry(hz, now);   // its talons have him!
+      else if (hz.lane === 'charge') { if (now >= G.safeUntil && G.state === 'play') { hz.hit = true; hurt(now, hz); } }
+      else hurt(now, hz);
+      if (hz.lane !== 'charge') continue;
+    }
     const d = HAZARDS[hz.kind];
     if (circles.length && onCourse(hz, circles, now)) G.dangerUntil = now + 200;
     if (hz.kind === 'eagle') maybePoop(hz, now);
@@ -1092,6 +1134,7 @@ function updateHazards(now, dt, sk) {
       continue;
     }
     if (hz.lane === 'ufo') { updateUfo(hz, now, circles, dt); continue; }
+    if (hz.lane === 'charge') { updateElephant(hz, now, dt); continue; }
     if (hz.lane === 'bounce') {
       const foot = hz.y + POGO_FOOT * charH;
       hz.comp = clamp(1 - (groundY - foot) / (charH * 0.06), 0, 1);       // the spring squashes as it touches down
@@ -1144,6 +1187,13 @@ function updateHazards(now, dt, sk) {
       } else hz.done = true;
     }
   }
+  // walking into the burning wreck of a crashed plane hurts, while the flames are up
+  for (const e of G.effects) {
+    if (e.type !== 'wreck' || !circles.length) continue;
+    const age = now - e.born; if (age < 150 || age > 3600) continue;
+    const k = age < 2800 ? 1 : clamp((3600 - age) / 800, 0, 1), sx = charH * HAZARDS.plane.scale, half = sx * 0.22 * k, top = groundY - sx * 0.32 * k;
+    if (circles.some(cr => Math.abs(cr.x - e.x) < half + cr.r * 0.5 && cr.y + cr.r > top)) hurt(now, { lane:'fire', x: e.x });
+  }
   G.hazards.forEach(hz => { if (hz.done) silence(hz); });
   G.hazards = G.hazards.filter(hz => !hz.done);
 }
@@ -1169,9 +1219,104 @@ function maybePoop(hz, now) {
   p.x = hz.x; p.y = hz.y + hz.h * 0.2; p.vx = vx; p.vy = 0; p.g = g;
 }
 
+// The charging elephant: runs in (thudding footsteps, dust), skids to a stop short of the player, rears up and
+// trumpets for 2 seconds, drops back down with a crash, then charges straight across and off the far side.
+function updateElephant(hz, now, dt) {
+  const age = now - hz.stateAt;
+  const step = ms => {
+    if (now < hz.nextStep) return;
+    hz.nextStep = now + ms; G.shake = Math.max(G.shake, ms < 250 ? 6 : 4);
+    if (hz.voice && hz.voice.play) { try { hz.voice.play('stomp'); } catch (e) {} }
+    G.effects.push({ type:'dust', x: hz.x - hz.dir * hz.w * 0.3, y: groundY, born: now, w: charH * 0.5, dur: ms < 250 ? 1800 : 1000 });
+  };
+  if (hz.state === 'run') {
+    step(330);
+    if ((hz.dir > 0 && hz.x >= hz.stopX) || (hz.dir < 0 && hz.x <= hz.stopX)) { hz.state = 'skid'; hz.stateAt = now; G.effects.push({ type:'dust', x: hz.x + hz.dir * hz.w * 0.2, y: groundY, born: now, w: charH * 0.9, dur: 1200 }); }
+  } else if (hz.state === 'skid') {
+    hz.vx *= Math.max(0, 1 - dt / 200);
+    if (age > 350) { hz.vx = 0; hz.state = 'rear'; hz.stateAt = now; if (hz.voice && hz.voice.play) { try { hz.voice.play('trumpet'); } catch (e) {} } }
+  } else if (hz.state === 'rear') {
+    hz.rear = Math.min(1, age / 400);
+    if (age > 2000) { hz.state = 'drop'; hz.stateAt = now; }
+  } else if (hz.state === 'drop') {
+    hz.rear = Math.max(0, 1 - age / 250);
+    if (age > 250) {
+      hz.rear = 0; hz.state = 'charge'; hz.stateAt = now; hz.vx = hz.dir * charH * 4.2 * speedUp(now) / 1000; G.shake = 14; hz.nextStep = 0;
+      G.effects.push({ type:'dust', x: hz.x, y: groundY, born: now, w: charH * 1.1, dur: 1500 });
+    }
+  } else if (hz.state === 'charge') {
+    step(190);
+    if ((hz.dir > 0 && hz.x - hz.w / 2 > W) || (hz.dir < 0 && hz.x + hz.w / 2 < 0)) { hz.done = true; if (!hz.hit) dodged(now, { ...hz, x: clamp(hz.x, 40, W - 40) }); }
+  }
+}
+// Spawn whatever the lane chooser picked. Later in the game cars and pigs come in lines of 2, 3 or 4, spaced
+// so the player can land and jump again in between.
+const GROUP_GAP = 1900;                                         // ms between one reaching the player and the next
+function spawnLane(lane, now, kind = null) {
+  const first = spawn(lane, now, kind);
+  if (lane !== 'ground' || !first || !(HAZARDS[first.kind].vehicle || first.kind === 'pig')) return;
+  const t = elapsed(now), most = t < 60 ? 1 : t < 120 ? 2 : t < 180 ? 3 : 4, n = window.__dgGroup || 1 + Math.floor(Math.random() * most);
+  const arrive = hz => Math.abs(hz.x - charX) / Math.abs(hz.vx), a1 = arrive(first);
+  for (let i = 1; i < n; i++) {
+    const f = spawn('ground', now, first.kind === 'pig' ? 'pig' : 'car', false, first.dir);
+    const extra = a1 + i * GROUP_GAP - arrive(f);
+    if (extra > 0) f.x -= f.dir * extra * Math.abs(f.vx);                 // start further back, so it arrives in turn
+  }
+}
+// The eagle's talons catch the man: it carries him up into the sky, then drops him.
+function startCarry(hz, now) {
+  G.carry = { hz, at: now, phase: 'up', vy: 0 };
+  hz.carrying = true; hz.hit = true; hz.talon = 1; G.safeUntil = Infinity;
+  hz.vx = hz.dir * charH * 1.1 / 1000; hz.vy = -charH * 1.2 / 1000; hz.spin = Math.atan2(hz.vy, Math.abs(hz.vx)) * hz.dir * 0.6;
+  if (hz.voice && hz.voice.play) { try { hz.voice.play('screech'); } catch (e) {} }
+}
+function updateCarry(now, dt) {
+  const C = G.carry, e = C.hz, se = charH * HAZARDS.eagle.scale;
+  if (C.phase === 'up') {
+    charX = clamp(e.x, W * 0.04, W * 0.96);
+    motion.lift = Math.max(0, groundY - (e.y + 0.05 * se + charH * 0.93));   // hanging from its talons
+    if (now - C.at > 1500) { C.phase = 'fall'; e.carrying = false; e.released = true; e.talon = 0; }
+  } else {
+    C.vy += 3.5 * charH / 1e6 * dt; motion.lift -= C.vy * dt;
+    if (motion.lift <= 0) {
+      motion.lift = 0; G.carry = null; G.safeUntil = 0; sfx.thud(); G.shake = 16;
+      G.effects.push({ type:'dust', x: charX, y: groundY, born: now, w: charH * 0.5, dur: 1000 });
+      hurt(now, { lane:'carry', x: charX - e.dir });
+    }
+  }
+  G.dangerUntil = now + 200;
+}
+// Health and energy packs: rare. Health only after losing a life, at most every 90 s; energy about every 2 min.
+const BOOST_MS = 20000;                                          // how long a super jump lasts
+function packsTick(now) {
+  if (elapsed(now) < 60 || G.hazards.some(h => h.lane === 'pack') || window.__dgNoAuto) return;
+  if (G.lives < LIVES && now >= G.nextHealth) { spawn('pack', now, 'health'); G.nextHealth = now + 90000; }
+  else if (now >= G.nextEnergy) { spawn('pack', now, 'energy'); G.nextEnergy = now + 100000 + Math.random() * 40000; }
+}
+function collectPack(hz, now) {
+  hz.done = true;
+  if (hz.kind === 'health') { if (G.lives < LIVES) { G.lives++; renderHearts(); } G.effects.push({ type:'text', text:'+1 ♥', x: hz.x, y: hz.y, born: now, color:'#ff6b6b' }); }
+  else { G.boostUntil = now + BOOST_MS; G.effects.push({ type:'text', text:'⚡ Super jump!', x: clamp(hz.x, 90, W - 90), y: hz.y, born: now, color:'#ffd43b' }); }
+  tone(880, 0.12, 'sine', 0.2); tone(1320, 0.14, 'sine', 0.2, 0.09); tone(1760, 0.2, 'sine', 0.18, 0.18);
+}
+// The man knocked down or lying flat: his whole body turned onto the ground (used for hits and drawing alike).
+function layK(k) {
+  if (!k || G.lay < 0.01) return k;
+  const a = G.lay * G.laySide, cs = Math.cos(a), sn = Math.sin(a), px = k.hip.x, py = groundY, off = charH * 0.07 * Math.sin(G.lay);
+  const out = {};
+  for (const [key, p] of Object.entries(k)) {
+    if (!p || typeof p !== 'object' || p.x === undefined) { out[key] = p; continue; }
+    const dx = p.x - px, dy = p.y - py;
+    out[key] = { ...p, x: px + dx * cs - dy * sn, y: py + dx * sn + dy * cs - off };
+    if (key === 'head') out[key].tilt = (p.tilt || 0) + a;
+  }
+  return out;
+}
+
 // Is this thing on course to hit the player within about a second? (Then the man looks alarmed.)
 function onCourse(hz, circles, now) {
-  if (hz.flying || hz.hit) return false;
+  if (hz.flying || hz.hit || hz.lane === 'pack') return false;
+  if (hz.lane === 'charge') return hz.state !== 'run' && hz.state !== 'skid' && !G.flat;
   if (hz.lane === 'ufo') return !!hz.charge && now - hz.charge.at > UFO_CHARGE_MS - 1000;
   const d = HAZARDS[hz.kind];
   for (const t of [150, 350, 550, 750, 950]) {
@@ -1222,6 +1367,12 @@ function drawEffects(c, now) {
       c.strokeText(e.text, e.x, e.y - t * 40); c.fillText(e.text, e.x, e.y - t * 40); c.globalAlpha = 1;
     } else if (e.type === 'boom') {
       drawFireball(c, e, now);
+    } else if (e.type === 'fizzle') {                                     // a missed pack bursting on the ground
+      const q = (now - e.born) / e.dur;
+      c.save(); c.globalAlpha = 1 - q;
+      for (let i = 0; i < 10; i++) { const a = Math.PI * (1 + i / 9), r = charH * (0.03 + q * 0.12);
+        c.fillStyle = e.health ? (i % 2 ? '#ffffff' : '#e03131') : (i % 2 ? '#ffe066' : '#f59f00'); c.beginPath(); c.arc(e.x + Math.cos(a) * r, e.y + Math.sin(a) * r, charH * 0.012, 0, 7); c.fill(); }
+      c.restore();
     } else if (e.type === 'splat') {
       drawSplat(c, e.x, e.y, charH, clamp((e.dur - (now - e.born)) / 800, 0, 1));
     } else if (e.type === 'dust') {
@@ -1319,15 +1470,28 @@ function gameFrame(now, dt) {
     }
   }
 
+  // Lying flat to dodge the elephant: the head dropped very low, or out of the bottom of the camera's view
+  // while it was charging (then the game carries on rather than pausing).
+  const charging = G.hazards.some(h => h.lane === 'charge');
+  const lostFlat = lost && charging && motion.up < -0.12;
+  if (G.knock && now - G.knock.at > 1600) G.knock = null;
+  G.flat = (lostFlat || (!lost && motion.up < -0.5)) && !G.knock && !G.carry;
   let sk = null;
   if (G.state === 'ready') { charX = W / 2; motion.lift = 0; motion.duck = 0; motion.vx = 0; sk = buildBody(); }
   else if (G.state !== 'off' && lm) {
-    if (!lost) { updateMotion(now); updateCharX(now); driftStance(); }
+    const held = G.knock || G.carry;                                    // knocked down or carried off: the player's moves don't count
+    if (!lost && !held) { updateMotion(now); updateCharX(now); driftStance(); }
+    if (held) { motion.jump = null; motion.duck = 0; if (!G.carry) motion.lift = 0; }
+    if (G.carry && G.state === 'play') updateCarry(now, dt);
+    if (G.flat) motion.duck = 0;
     sk = buildBody(); G.lastSk = sk;
   }
+  const layTarget = (G.knock && now - G.knock.at < 1100) || G.flat ? Math.PI / 2 : 0;
+  if (G.flat && !G.knock) G.laySide = 1;
+  G.lay = clamp((G.lay || 0) + clamp(layTarget - (G.lay || 0), -dt * 0.004, dt * 0.009), 0, Math.PI / 2);
 
   if (G.state === 'play') {
-    if (lost) {                                                        // pause the action until we can see the player
+    if (lost && !lostFlat && !G.carry && !G.knock) {                  // pause the action until we can see the player
       G.start += dt; G.nextSpawn += dt; G.safeUntil += dt; G.pending.forEach(p => { p.at += dt; });
       for (const hz of G.hazards) if (hz.voice) { try { hz.voice.update(0, 0, 0, hz, now); } catch (e) { silence(hz); } }
       setBanner('Where did you go?', 'Step back into view to carry on');
@@ -1344,19 +1508,24 @@ function gameFrame(now, dt) {
           G.nextSpawn = now + spawnGap(now) * 1.4;
         } else {
           const lane = nextLane();
-          spawn(lane, now);
-          if ((G.tutorial <= 3 && G.tutorial > 0 && G.score < 3) || (lane === 'ufo' && !G.sawUfo) || (lane === 'bounce' && !G.sawPogo) || (lane === 'villain' && !G.sawVillain)) flash(TEACH_TEXT[lane][0], TEACH_TEXT[lane][1], 3000, now);
+          spawnLane(lane, now);
+          if ((G.tutorial <= 3 && G.tutorial > 0 && G.score < 3) || (lane === 'ufo' && !G.sawUfo) || (lane === 'bounce' && !G.sawPogo) || (lane === 'charge' && !G.sawEle) || (lane === 'villain' && !G.sawVillain)) flash(TEACH_TEXT[lane][0], TEACH_TEXT[lane][1], 3000, now);
           if (lane === 'ufo') G.sawUfo = true;
           if (lane === 'bounce') G.sawPogo = true;
+          if (lane === 'charge') G.sawEle = true;
           if (lane === 'villain') G.sawVillain = true;
           G.nextSpawn = now + spawnGap(now);
         }
       }
       for (const p of G.pending) if (now >= p.at) { spawn(p.lane, now, p.kind, p.aimed); p.done = true; }
       G.pending = G.pending.filter(p => !p.done);
-      updateHazards(now, dt, sk);
+      packsTick(now);
+      updateHazards(now, dt, sk ? layK(sk) : null);
       updateVillain(now, dt); handlePunch(now);
       $('timeNum').textContent = fmt(now - G.start);
+      const boostLeft = Math.max(0, (G.boostUntil || 0) - now);
+      if ($('energyBar').hidden !== !boostLeft) $('energyBar').hidden = !boostLeft;
+      if (boostLeft) $('energyFill').style.width = (boostLeft / BOOST_MS * 100) + '%';
     }
   } else if (G.state === 'ending') {
     updateHazards(now, dt, null);
@@ -1374,8 +1543,16 @@ function gameFrame(now, dt) {
     ctx.fillStyle = 'rgba(0,0,0,0.2)';                                  // the character's own shadow
     ctx.beginPath(); ctx.ellipse(k.hip.x, groundY + 4, charH * 0.16 / (1 + motion.lift / charH * 3), charH * 0.03, 0, 0, 7); ctx.fill();
     const mood = now - (G.hurtAt || -1e9) < 1000 ? 'pain' : now < (G.dangerUntil || 0) ? 'alarm' : 'neutral';
-    drawCharacter(ctx, k, selected(), now < G.safeUntil, mood, now, G.state === 'play' || G.state === 'ending' ? LIVES - G.lives : 0);
+    if (now < (G.boostUntil || 0)) {                                    // super jump: a faint golden glow
+      const gl = ctx.createRadialGradient(k.hip.x, groundY - motion.lift - charH * 0.5, 0, k.hip.x, groundY - motion.lift - charH * 0.5, charH * 0.7);
+      gl.addColorStop(0, `rgba(255,220,80,${0.25 + 0.1 * Math.sin(now / 150)})`); gl.addColorStop(1, 'rgba(255,220,80,0)');
+      ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(k.hip.x, groundY - motion.lift - charH * 0.5, charH * 0.7, 0, 7); ctx.fill();
+    }
+    ctx.save();
+    if (G.lay > 0.01) { const px = k.hip.x, py = groundY; ctx.translate(px, py - charH * 0.07 * Math.sin(G.lay)); ctx.rotate(G.lay * G.laySide); ctx.translate(-px, -py); }
+    drawCharacter(ctx, k, selected(), now < G.safeUntil && !G.carry, mood, now, G.state === 'play' || G.state === 'ending' ? LIVES - G.lives : 0);
     if (now < (G.headSplat || 0)) drawSplat(ctx, k.head.x + k.head.r * 0.25, k.head.y - k.head.r * 0.75, charH, clamp((G.headSplat - now) / 800, 0, 1), true);
+    ctx.restore();
   }
   if (G.villain) drawVillain(ctx, G.villain, charH, now);
   for (const hz of G.hazards) drawHazard(ctx, hz, charH, now);
@@ -1573,4 +1750,4 @@ initVision()
 requestAnimationFrame(loop);
 
 // Hooks for automated testing.
-window.__dg = { G, B, motion, buildBody, nextLane: () => nextLane(), spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed) };
+window.__dg = { G, B, motion, buildBody, nextLane: () => nextLane(), spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed), spawnLane: (lane, kind) => spawnLane(lane, performance.now(), kind) };

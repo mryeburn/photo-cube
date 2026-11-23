@@ -14,7 +14,9 @@ export { preloadVehicles, VEHICLES };
 export const HAZARDS = {
   bomb:     { lane:'sky', scale:1.4, w:0.26, h:0.32, speed:0.95, draw:drawBomb, explodes:true },
   weight:   { lane:'sky', scale:1.5, w:0.42, h:0.32, speed:1.15, draw:drawWeight },
-  elephant: { lane:'sky', scale:2.7, w:0.56, h:0.44, speed:0.9, hitR:0.5, tumbles:true, fallV0:0.85, gMul:1.7, draw:drawElephant },   // drops quickly, then speeds up
+  elephant: { lane:'charge', scale:2.7, w:0.56, h:0.53, speed:1, draw:drawElephant },   // charges, rears up, charges again: lie flat
+  health:   { lane:'pack', scale:1.6, w:0.16, h:0.24, speed:1, noPick:true, draw:(c, s, t) => drawPack(c, s, t, true) },    // catch: one life back
+  energy:   { lane:'pack', scale:1.6, w:0.16, h:0.24, speed:1, noPick:true, draw:(c, s, t) => drawPack(c, s, t, false) },   // catch: super jumps
   anvil:    { lane:'sky', scale:1.4, w:0.38, h:0.22, speed:1.2,  draw:drawAnvil },
   plane:    { lane:'sky', scale:1.6, w:0.52, h:0.32, speed:1.05, hitR:0.24, dives:true, draw:drawPlane },
   // Six different vehicles (see vehicles.js), each with its own speed. Ground-lane picks choose 'car', and the
@@ -32,7 +34,7 @@ export const HAZARDS = {
   pogo:     { lane:'bounce', scale:1.6, w:0.3, h:0.7, speed:1.0, pogo:true, draw:drawPogo },   // a kid bouncing across on a pogo stick
   boomerang:{ lane:'air', scale:1.3, w:0.34, h:0.12, speed:2.4, returns:true, shaped:true, draw:drawBoomerang },        // out and back, spinning flat
 };
-export const BY_LANE = { sky:[], ground:[], air:[], ufo:[], bounce:[] };
+export const BY_LANE = { sky:[], ground:[], air:[], ufo:[], bounce:[], charge:[], pack:[] };
 for (const [k, d] of Object.entries(HAZARDS)) if (!d.vehicle && !d.noPick) BY_LANE[d.lane].push(k);
 BY_LANE.ground.unshift('car');
 export const VEHICLE_KINDS = Object.keys(VEHICLES);
@@ -102,13 +104,18 @@ function drawWeight(c, s) {
 }
 // The elephant, drawn with shaded, wrinkled grey skin. It tumbles as it falls (the game turns it); here its
 // legs paddle, its big ear flaps and its trunk swings and curls in alarm.
-function drawElephant(c, s, t) {
+function drawElephant(c, s, t, hz) {
+  // running (legs swinging), or reared up on its hind legs with the front feet pawing the air
+  const st = hz && hz.state, rear = hz && hz.rear || 0, gait = st === 'charge' ? 55 : st === 'run' ? 85 : 0;
+  c.save(); if (rear) { c.translate(-0.15 * s, 0.33 * s); c.rotate(-0.65 * rear); c.translate(0.15 * s, -0.33 * s); }
   const skin = (x, y, r) => { const g = c.createRadialGradient(x - r * 0.4, y - r * 0.5, r * 0.1, x, y, r * 1.2); g.addColorStop(0, '#b8bec4'); g.addColorStop(0.55, '#8c939a'); g.addColorStop(1, '#5f666d'); return g; };
   c.lineWidth = 1.5; c.strokeStyle = INK;
   const wrinkle = (x1, y1, x2, y2, bend) => { c.strokeStyle = 'rgba(60,66,72,0.55)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(x1, y1); c.quadraticCurveTo((x1 + x2) / 2, (y1 + y2) / 2 + bend, x2, y2); c.stroke(); };
   // legs, paddling, each pivoting at the hip (far legs darker)
   [[-0.15, 0, 0.8], [-0.05, 1.7, 1], [0.07, 3.1, 0.8], [0.16, 4.4, 1]].forEach(([x, ph, tone]) => {
-    c.save(); c.translate(x * s, 0.08 * s); c.rotate(Math.sin(t / 130 + ph) * 0.45);
+    c.save(); c.translate(x * s, 0.08 * s);
+    c.rotate(rear > 0.3 && x > 0 ? -0.8 + Math.sin(t / 110 + ph) * 0.45 : gait ? Math.sin(t / gait + ph) * 0.55 : Math.sin(t / 400 + ph) * 0.08);
+    c.scale(1, 1.7);                                                              // long legs, so a man lying flat fits under its belly
     c.beginPath(); c.moveTo(-0.04 * s, 0); c.lineTo(-0.038 * s, 0.13 * s); c.quadraticCurveTo(0, 0.145 * s, 0.038 * s, 0.13 * s); c.lineTo(0.04 * s, 0); c.closePath();
     c.fillStyle = skin(0, 0.06 * s, 0.07 * s); c.globalAlpha = tone; c.fill(); c.globalAlpha = 1; c.strokeStyle = INK; c.lineWidth = 1.5; c.stroke();
     for (let k = 0; k < 3; k++) wrinkle(-0.03 * s, (0.04 + k * 0.03) * s, 0.03 * s, (0.04 + k * 0.03) * s, 0.01 * s);
@@ -139,6 +146,7 @@ function drawElephant(c, s, t) {
   // trunk: a tapering, wrinkled tube that swings and curls
   const sw = Math.sin(t / 160), curl = Math.sin(t / 230 + 1);
   const p0 = [0.27 * s, -0.06 * s], p1 = [0.37 * s, -0.04 * s], p2 = [0.38 * s + sw * 0.05 * s, 0.04 * s + curl * 0.05 * s], p3 = [0.33 * s + sw * 0.1 * s, 0.13 * s + curl * 0.08 * s];
+  if (rear) { const up = [[0.33, -0.16], [0.4, -0.27], [0.37, -0.36]]; [p1, p2, p3].forEach((p, i) => { p[0] += (up[i][0] * s - p[0]) * rear; p[1] += (up[i][1] * s - p[1]) * rear; }); }   // trunk raised to trumpet
   const bez = (u) => { const a = 1 - u; return [a * a * a * p0[0] + 3 * a * a * u * p1[0] + 3 * a * u * u * p2[0] + u * u * u * p3[0], a * a * a * p0[1] + 3 * a * a * u * p1[1] + 3 * a * u * u * p2[1] + u * u * u * p3[1]]; };
   for (let i = 0; i <= 14; i++) {                                                   // stack of shrinking discs = a tapering trunk
     const u = i / 14, [x, y] = bez(u), r = (0.034 - u * 0.016) * s;
@@ -167,6 +175,7 @@ function drawElephant(c, s, t) {
   c.strokeStyle = '#2a2d31'; c.lineWidth = 1;
   for (let i = 0; i < 5; i++) { const x = 0.24 + i * 0.005; c.beginPath(); c.moveTo(x * s, -0.13 * s); c.lineTo((x - 0.004) * s, -0.139 * s); c.stroke(); }
   for (const r of [0.019, 0.025]) { c.strokeStyle = 'rgba(55,60,66,0.5)'; c.beginPath(); c.ellipse(0.248 * s, -0.122 * s, r * s, r * 0.7 * s, -0.2, 0.2, Math.PI - 0.2); c.stroke(); }
+  c.restore();
 }
 // Brushed metal: fine lengthwise grain, some lines brighter, some darker. (Call inside a clip.)
 function brushed(c, s, x0, y0, w, h, seed) {
@@ -574,6 +583,39 @@ export function drawSplat(c, x, y, s, alpha, onHead = false) {
   c.fillStyle = 'rgba(90,90,80,0.55)'; c.beginPath(); c.ellipse(0, 0, 0.012 * s, 0.006 * s, 0, 0, 7); c.fill();
   c.fillStyle = '#f8f9fa'; for (const [dx, dy] of [[0.06, -0.005], [-0.055, 0.004], [0.035, 0.01]]) { c.beginPath(); c.arc(dx * s, dy * s * (onHead ? 2 : 1), 0.006 * s, 0, 7); c.fill(); }
   if (onHead) for (const dx of [-0.02, 0.015]) { c.beginPath(); c.ellipse(dx * s, 0.035 * s, 0.006 * s, 0.014 * s, 0, 0, 7); c.fill(); }   // drips
+  c.restore();
+}
+
+// A supply pack floating down under a little parachute: a first-aid kit (white, red cross) or an energy
+// battery (yellow, with a lightning bolt, glowing). Drawn with the box at +0.06 and the canopy above.
+function drawPack(c, s, t, health) {
+  const sway = Math.sin(t / 700) * 0.12;
+  c.save(); c.rotate(sway * 0.5);
+  // canopy: striped panels, shaded underneath
+  const panels = health ? ['#e03131', '#f8f9fa'] : ['#fcc419', '#212529'];
+  for (let i = 0; i < 6; i++) {
+    const a0 = Math.PI + i * Math.PI / 6, a1 = a0 + Math.PI / 6;
+    c.fillStyle = panels[i % 2]; c.beginPath(); c.moveTo(0, -0.06 * s); c.ellipse(0, -0.06 * s, 0.075 * s, 0.055 * s, 0, a0, a1); c.closePath(); c.fill();
+  }
+  c.fillStyle = 'rgba(0,0,0,0.18)'; c.beginPath(); c.ellipse(0, -0.06 * s, 0.075 * s, 0.012 * s, 0, 0, Math.PI); c.fill();
+  c.strokeStyle = INK; c.lineWidth = 1; c.beginPath(); c.ellipse(0, -0.06 * s, 0.075 * s, 0.055 * s, 0, Math.PI, 0); c.stroke();
+  c.strokeStyle = 'rgba(60,60,60,0.7)'; c.lineWidth = 0.8;                              // lines down to the box
+  for (const x of [-0.072, -0.03, 0.03, 0.072]) { c.beginPath(); c.moveTo(x * s, -0.058 * s); c.lineTo(x * 0.35 * s, 0.035 * s); c.stroke(); }
+  c.restore();
+  c.save(); c.translate(0, 0.06 * s); c.rotate(sway * 0.3);
+  if (health) {
+    const g = c.createLinearGradient(0, -0.03 * s, 0, 0.03 * s); g.addColorStop(0, '#ffffff'); g.addColorStop(1, '#ced4da');
+    c.fillStyle = g; c.beginPath(); c.roundRect ? c.roundRect(-0.038 * s, -0.026 * s, 0.076 * s, 0.054 * s, 0.008 * s) : c.rect(-0.038 * s, -0.026 * s, 0.076 * s, 0.054 * s); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke();
+    c.fillStyle = '#e03131'; c.fillRect(-0.008 * s, -0.018 * s, 0.016 * s, 0.038 * s); c.fillRect(-0.019 * s, -0.007 * s, 0.038 * s, 0.016 * s);
+    c.strokeStyle = '#495057'; c.lineWidth = 0.008 * s; c.beginPath(); c.arc(0, -0.026 * s, 0.012 * s, Math.PI, 0); c.stroke();   // handle
+  } else {
+    const glow = c.createRadialGradient(0, 0, 0, 0, 0, 0.07 * s); glow.addColorStop(0, `rgba(255,230,80,${0.45 + 0.25 * Math.sin(t / 120)})`); glow.addColorStop(1, 'rgba(255,230,80,0)');
+    c.fillStyle = glow; c.beginPath(); c.arc(0, 0, 0.07 * s, 0, 7); c.fill();
+    const g = c.createLinearGradient(-0.025 * s, 0, 0.025 * s, 0); g.addColorStop(0, '#e8a400'); g.addColorStop(0.45, '#ffe066'); g.addColorStop(1, '#c78a00');
+    c.fillStyle = g; c.beginPath(); c.roundRect ? c.roundRect(-0.024 * s, -0.03 * s, 0.048 * s, 0.06 * s, 0.008 * s) : c.rect(-0.024 * s, -0.03 * s, 0.048 * s, 0.06 * s); c.fill(); c.strokeStyle = INK; c.lineWidth = 1.2; c.stroke();
+    c.fillStyle = '#868e96'; c.fillRect(-0.01 * s, -0.037 * s, 0.02 * s, 0.008 * s);
+    c.fillStyle = '#212529'; c.beginPath(); c.moveTo(0.006 * s, -0.022 * s); c.lineTo(-0.012 * s, 0.004 * s); c.lineTo(0.0, 0.004 * s); c.lineTo(-0.006 * s, 0.024 * s); c.lineTo(0.013 * s, -0.004 * s); c.lineTo(0.001 * s, -0.004 * s); c.closePath(); c.fill();
+  }
   c.restore();
 }
 
