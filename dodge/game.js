@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '3.1';
+const VERSION = '3.2';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -317,7 +317,7 @@ function shade(hex, f) {
 }
 // A face with a mood: 'neutral' most of the time, 'alarm' when something is about to hit, 'pain' just after a
 // hit. With a photo face the photo is shown instead, with a red flash and a wince-shake when hurt.
-function drawHead(c, p, h, mood = 'neutral', now = 0) {
+function drawHead(c, p, h, mood = 'neutral', now = 0, damage = 0) {
   c.save(); c.translate(h.x, h.y); c.rotate(h.tilt);
   const r = h.r, img = faceImage(p);
   if (mood === 'pain') c.translate(Math.sin(now / 28) * r * 0.08, 0);                    // wince
@@ -325,6 +325,7 @@ function drawHead(c, p, h, mood = 'neutral', now = 0) {
     c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2);
     c.save(); c.clip(); c.drawImage(img, -r, -r, r * 2, r * 2);
     if (mood === 'pain') { c.fillStyle = `rgba(255,30,30,${0.25 + 0.2 * Math.abs(Math.sin(now / 90))})`; c.fillRect(-r, -r, r * 2, r * 2); }
+    headDamage(c, r, damage, true);
     c.restore();
     c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.lineWidth = Math.max(2, r * 0.06); c.strokeStyle = OUTLINE; c.stroke();
     c.restore(); return;
@@ -403,7 +404,36 @@ function drawHead(c, p, h, mood = 'neutral', now = 0) {
     c.strokeStyle = shade(skin, -0.45); c.lineWidth = Math.max(1.5, r * 0.05); c.beginPath(); c.moveTo(-r * 0.2, my); c.quadraticCurveTo(0, my + r * 0.015, r * 0.2, my); c.stroke();
     c.strokeStyle = shade(skin, -0.15); c.lineWidth = Math.max(1, r * 0.03); c.beginPath(); c.moveTo(-r * 0.12, my + r * 0.12); c.quadraticCurveTo(0, my + r * 0.16, r * 0.12, my + r * 0.12); c.stroke();   // lower lip shadow
   }
+  headDamage(c, r, damage, false);
   c.restore();
+}
+// Signs of the knocks he has taken. 1: a black eye, a sticking plaster on the forehead and dirt on his face.
+// 2: also a swollen bruise on the cheek, a second plaster and hair sticking up every which way.
+function headDamage(c, r, damage, photo) {
+  if (!damage) return;
+  const plaster = (x, y, a, len) => {
+    c.save(); c.translate(x, y); c.rotate(a);
+    c.fillStyle = '#e8c39e'; c.strokeStyle = 'rgba(120,80,50,0.6)'; c.lineWidth = 1;
+    c.beginPath(); c.roundRect ? c.roundRect(-len / 2, -r * 0.09, len, r * 0.18, r * 0.08) : c.rect(-len / 2, -r * 0.09, len, r * 0.18); c.fill(); c.stroke();
+    c.fillStyle = '#f5e1c8'; c.fillRect(-len * 0.16, -r * 0.07, len * 0.32, r * 0.14);
+    c.fillStyle = 'rgba(120,80,50,0.35)'; for (const dx of [-0.38, 0.38]) for (const dy of [-0.04, 0.04]) { c.beginPath(); c.arc(dx * len, dy * r, r * 0.012, 0, 7); c.fill(); }
+    c.restore();
+  };
+  {
+    const ex = -r * 0.33, ey = -r * 0.1;                                       // black eye
+    const g = c.createRadialGradient(ex, ey, r * 0.05, ex, ey, r * 0.3); g.addColorStop(0, 'rgba(70,30,80,0.65)'); g.addColorStop(0.6, 'rgba(90,40,90,0.45)'); g.addColorStop(1, 'rgba(90,40,90,0)');
+    c.fillStyle = g; c.beginPath(); c.arc(ex, ey, r * 0.3, 0, 7); c.fill();
+    plaster(r * 0.28, -r * 0.6, -0.5, r * 0.55);
+    c.fillStyle = 'rgba(110,85,60,0.3)'; for (const [x, y, rr] of [[0.5, 0.35, 0.12], [0.62, 0.48, 0.07], [-0.55, 0.55, 0.09]]) { c.beginPath(); c.arc(x * r, y * r, rr * r, 0, 7); c.fill(); }
+  }
+  if (damage >= 2) {
+    const bx = r * 0.48, by = r * 0.2;                                         // swollen, yellow-edged bruise
+    const g = c.createRadialGradient(bx, by, 0, bx, by, r * 0.28); g.addColorStop(0, 'rgba(110,40,110,0.6)'); g.addColorStop(0.6, 'rgba(150,80,120,0.4)'); g.addColorStop(0.85, 'rgba(190,180,60,0.3)'); g.addColorStop(1, 'rgba(190,180,60,0)');
+    c.fillStyle = g; c.beginPath(); c.ellipse(bx, by, r * 0.28, r * 0.24, 0, 0, 7); c.fill();
+    plaster(-r * 0.15, r * 0.82, 0.3, r * 0.4);
+    c.strokeStyle = '#3d2e24'; c.lineWidth = Math.max(1, r * 0.04); c.lineCap = 'round';   // hair sticking up
+    for (const [x, a] of [[-0.4, -2.2], [-0.15, -1.75], [0.1, -1.4], [0.35, -1.0], [0.0, -1.6]]) { c.beginPath(); c.moveTo(x * r, -r * 0.92); c.lineTo(x * r + Math.cos(a) * r * 0.3, -r * 0.92 + Math.sin(a) * r * 0.3); c.stroke(); }
+  }
 }
 
 // A tapered, shaded limb segment (outline, colour, then a soft highlight along one side).
@@ -453,7 +483,7 @@ function shoe(c, an, ft, s) {
 
 // The player's man: natural proportions, a shaded shirt with folds and a collar, a belt, trousers with a
 // crease, arms with hands, a neck, and leather shoes. mood: see drawHead.
-function drawCharacter(c, k, p, hurt, mood = 'neutral', now = performance.now()) {
+function drawCharacter(c, k, p, hurt, mood = 'neutral', now = performance.now(), damage = 0) {
   const s = charH, shirt = p.shirt, pants = p.pants || DEFAULT.pants, skin = p.skin;
   c.save();
   if (hurt) c.globalAlpha = 0.55 + 0.35 * Math.abs(Math.sin(now / 70));   // blink while safe after a hit
@@ -466,6 +496,9 @@ function drawCharacter(c, k, p, hurt, mood = 'neutral', now = performance.now())
       k[side + 'El'] = { x: S.x + sx * s * 0.09, y: S.y - s * 0.02 };
       k[side + 'Wr'] = { x: k.head.x + sx * s * 0.06, y: k.head.y - s * 0.02 };
     }
+  }
+  if (damage >= 2) {                                                       // sore: shoulders droop, one knee bent (a limp)
+    k = { ...k, lSh: { x: k.lSh.x, y: k.lSh.y + s * 0.012 }, rSh: { x: k.rSh.x, y: k.rSh.y + s * 0.02 }, rKnee: { x: k.rKnee.x + s * 0.02, y: k.rKnee.y - s * 0.01 }, rAnk: { x: k.rAnk.x + s * 0.005, y: k.rAnk.y - s * 0.012 } };
   }
   // legs (trousers) and shoes
   for (const [h, kn, an, ft] of [[k.lHip, k.lKnee, k.lAnk, k.lFoot], [k.rHip, k.rKnee, k.rAnk, k.rFoot]]) {
@@ -483,6 +516,14 @@ function drawCharacter(c, k, p, hurt, mood = 'neutral', now = performance.now())
     c.strokeStyle = 'rgba(214,140,60,0.45)'; c.lineWidth = 0.8; c.setLineDash([1.5, 2]);
     c.beginPath(); c.moveTo(h.x + out * s * 0.04, h.y); c.lineTo(kn.x + out * s * 0.03, kn.y); c.lineTo(an.x + out * s * 0.024, an.y - s * 0.01); c.stroke(); c.setLineDash([]);
     shoe(c, an, ft, s);
+    if (damage >= 2 && h === k.rHip) {                                       // ripped jeans at the knee, a scraped knee showing
+      const hole = new Path2D(); const hx = kn.x, hy = kn.y + s * 0.005;
+      for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2, rr = s * (i % 2 ? 0.026 : 0.017); i ? hole.lineTo(hx + Math.cos(a) * rr, hy + Math.sin(a) * rr * 0.75) : hole.moveTo(hx + rr, hy); }
+      hole.closePath(); c.fillStyle = skin; c.fill(hole); c.strokeStyle = 'rgba(240,240,250,0.8)'; c.lineWidth = 1.2; c.stroke(hole);
+      c.save(); c.clip(hole); c.strokeStyle = 'rgba(190,30,30,0.7)'; c.lineWidth = 1;
+      for (let i = -2; i <= 2; i++) { c.beginPath(); c.moveTo(hx - s * 0.015, hy + i * s * 0.005); c.lineTo(hx + s * 0.015, hy + i * s * 0.005 - s * 0.006); c.stroke(); }
+      c.restore();
+    }
   }
   // torso: shirt shaped over the shoulders, a little narrower at the waist
   const grow = (a, o, f) => ({ x: a.x + (a.x - o.x) * f, y: a.y + (a.y - o.y) * f });
@@ -502,6 +543,12 @@ function drawCharacter(c, k, p, hurt, mood = 'neutral', now = performance.now())
   c.strokeStyle = 'rgba(0,0,0,0.18)'; c.lineWidth = 1.5;                                         // folds
   for (const [f, b] of [[0.3, 0.06], [0.62, -0.05], [0.8, 0.04]]) { const y = neck.y + (lh.y - neck.y) * f; c.beginPath(); c.moveTo(neck.x - s * 0.07, y); c.quadraticCurveTo(neck.x + b * s, y + s * 0.02, neck.x + s * 0.07, y - s * 0.01); c.stroke(); }
   c.strokeStyle = 'rgba(0,0,0,0.25)'; c.beginPath(); c.moveTo(neck.x, neck.y + s * 0.03); c.lineTo((lh.x + rh.x) / 2, lh.y); c.stroke();   // button placket
+  if (damage >= 1) { c.fillStyle = 'rgba(110,85,60,0.35)'; for (const [fx, fy, rr] of [[-0.05, 0.08, 0.025], [0.04, 0.16, 0.018], [-0.02, 0.2, 0.014], [0.06, 0.05, 0.012]]) { c.beginPath(); c.ellipse(neck.x + fx * s, neck.y + fy * s, rr * s, rr * 0.7 * s, 0.4, 0, 7); c.fill(); } }
+  if (damage >= 2) {                                                         // pocket torn half off, hanging down
+    const px = neck.x + s * 0.05, py = neck.y + s * 0.06;
+    c.fillStyle = shade(shirt, -0.12); c.strokeStyle = shade(shirt, -0.5); c.lineWidth = 1;
+    c.beginPath(); c.moveTo(px - s * 0.025, py); c.lineTo(px + s * 0.02, py + s * 0.004); c.lineTo(px + s * 0.03, py + s * 0.045); c.lineTo(px - s * 0.008, py + s * 0.05); c.closePath(); c.fill(); c.stroke();
+  }
   c.fillStyle = 'rgba(255,255,255,0.7)'; for (let i = 1; i < 4; i++) { c.beginPath(); c.arc(neck.x + ((lh.x + rh.x) / 2 - neck.x) * i / 4 + s * 0.006, neck.y + (lh.y - neck.y) * i / 4, s * 0.006, 0, 7); c.fill(); }
   c.restore();
   // collar
@@ -515,10 +562,17 @@ function drawCharacter(c, k, p, hurt, mood = 'neutral', now = performance.now())
     limb2(c, sh, el, s * 0.07, s * 0.058, shade(shirt, -0.05));
     const cuff = { x: el.x + (wr.x - el.x) * 0.35, y: el.y + (wr.y - el.y) * 0.35 };
     limb2(c, el, cuff, s * 0.058, s * 0.055, shade(shirt, -0.05));                                  // sleeve rolled to below the elbow
+    if (damage >= 1 && sh === k.lSh) {                                       // torn sleeve, the arm showing through
+      const mx = (sh.x + el.x) / 2, my = (sh.y + el.y) / 2, tear = new Path2D();
+      tear.moveTo(mx - s * 0.02, my - s * 0.025); tear.lineTo(mx + s * 0.005, my - s * 0.012); tear.lineTo(mx + s * 0.022, my - s * 0.02); tear.lineTo(mx + s * 0.012, my + s * 0.005);
+      tear.lineTo(mx + s * 0.02, my + s * 0.025); tear.lineTo(mx - s * 0.005, my + s * 0.012); tear.lineTo(mx - s * 0.02, my + s * 0.02); tear.lineTo(mx - s * 0.012, my); tear.closePath();
+      c.fillStyle = shade(skin, -0.1); c.fill(tear); c.strokeStyle = shade(shirt, -0.5); c.lineWidth = 1.2; c.stroke(tear);
+      c.strokeStyle = shade(shirt, 0.25); c.lineWidth = 0.8; for (const [dx, dy] of [[-0.02, -0.025], [0.022, -0.02], [0.02, 0.025]]) { c.beginPath(); c.moveTo(mx + dx * s, my + dy * s); c.lineTo(mx + dx * s * 1.3, my + dy * s * 1.4); c.stroke(); }   // frayed threads
+    }
     limb2(c, cuff, wr, s * 0.046, s * 0.036, skin);
     hand(c, el, wr, s, skin);
   }
-  drawHead(c, p, k.head, mood, now);
+  drawHead(c, p, k.head, mood, now, damage);
   c.restore();
 }
 
@@ -641,10 +695,10 @@ function spawn(lane, now, kind = null, aimed = false) {
     hz.vx = hz.dir * sp; hz.vy = 0; hz.shots = 0; hz.nextShot = now + 1400 + Math.random() * 800; hz.aim = null;
     const t = elapsed(now); hz.maxShots = t < 120 ? 1 : t < 180 ? 2 : 3;   // more shots per visit as the game goes on
   } else if (lane === 'bounce') {
-    // A kid on a pogo stick bounces straight across the screen in 3 or 4 big hops, each one rising to about
-    // two-thirds of the way up the screen. He doesn't aim: watch his hops and step out of the way.
+    // A kid on a pogo stick bounces straight across the screen in 4 or 5 hops, his feet rising to just over the
+    // man's head. He doesn't aim: watch his hops and step out of the way.
     hz.dir = Math.random() < 0.5 ? 1 : -1;
-    const A = groundY * POGO_RISE, T = 1500 / Math.sqrt(speedUp(now)) * (0.9 + Math.random() * 0.2), n = Math.random() < 0.5 ? 3 : 4;
+    const A = charH * POGO_RISE, T = 1800 / Math.sqrt(speedUp(now)) * (0.9 + Math.random() * 0.2), n = Math.random() < 0.5 ? 4 : 5;
     const x0 = hz.dir > 0 ? -w / 2 : W + w / 2, x1 = hz.dir > 0 ? W + w / 2 : -w / 2;
     hz.vx = hz.dir * Math.abs(x1 - x0) / (n * T); hz.g = 8 * A / (T * T); hz.hopV = 4 * A / T;
     const tau = Math.random() * T;                                   // how far into a hop he is as he appears
@@ -666,6 +720,12 @@ function spawn(lane, now, kind = null, aimed = false) {
     }
     hz.x = hz.dir > 0 ? -w / 2 - lead : W + w / 2 + lead;
     hz.y = lane === 'ground' ? groundY - h / 2 : groundY - charH * 0.95;   // flyers come at head height
+    if (d.twoPass) {
+      // The missile: one pass or two (half the time each), and each pass high (duck) or low (jump), at random.
+      const passes = Math.random() < 0.5 ? 1 : 2;                       // e.g. 'H', 'L', 'HL', 'LL' (tests can choose)
+      hz.plan = window.__dgMissile || Array.from({ length: passes }, () => Math.random() < 0.5 ? 'H' : 'L').join('');
+      setMissileHeight(hz, hz.plan[0]);
+    }
     hz.vx = hz.dir * sp; hz.vy = 0;
     if (d.arc) {
       // Thrown in a shallow arc: it leaves the thrower's hand a little above head height travelling almost
@@ -814,6 +874,11 @@ function followPath(hz, dt) {
   } else hz.spin += hz.dir * dt * 0.0075;                             // the boomerang spins flat, about 1.2 turns a second
 }
 
+function setMissileHeight(hz, hl) {
+  if (hl === 'H') { hz.lane = 'air'; hz.y = groundY - charH * 0.95; }      // head height: duck
+  else { hz.lane = 'ground'; hz.y = groundY - hz.h / 2 - charH * 0.03; }   // skimming the ground: jump
+}
+
 // Where a falling object lands: 40% of the time aimed at the player, otherwise 1 to 3 character widths
 // clear of them to the left or right. (Timed combos are always aimed.)
 function skyTarget(w, aimed) {
@@ -824,7 +889,7 @@ function skyTarget(w, aimed) {
   if (charX + side * off < w / 2 || charX + side * off > W - w / 2) side = -side;   // no room that side: use the other
   return clamp(charX + side * off, w / 2, W - w / 2);
 }
-const POGO_RISE = 0.6, POGO_FOOT = 0.35 * 1.25;                       // the pogo kid's hops: share of the ground height; centre to rubber foot
+const POGO_RISE = 1.25, POGO_FOOT = 0.35 * 1.6;                  // hop height (character heights, feet); centre to rubber foot                       // the pogo kid's hops: share of the ground height; centre to rubber foot
 const FALL_V0 = 0.25 / 1000;                                   // starting fall speed, character heights per ms
 const fallGravity = (kind, now) => 0.9 * charH / 1e6 * (HAZARDS[kind].speed * speedUp(now)) ** 2 * (HAZARDS[kind].gMul || 1);   // px per ms²
 
@@ -1072,10 +1137,9 @@ function updateHazards(now, dt, sk) {
       dodged(now, hz);
     } else if (hz.lane !== 'sky' && ((hz.dir > 0 && hz.x - hz.w / 2 > W) || (hz.dir < 0 && hz.x + hz.w / 2 < 0))) {
       dodged(now, hz);
-      if (d.twoPass && !hz.secondPass) {
-        // The missile turns round off screen and comes back low along the ground: jump this time.
-        hz.secondPass = true; hz.dir = -hz.dir; hz.vx = -hz.vx * 1.1; hz.lane = 'ground';
-        hz.y = groundY - hz.h / 2 - charH * 0.03;
+      if (d.twoPass && !hz.secondPass && hz.plan.length > 1) {
+        // The missile turns round off screen and comes back, high or low.
+        hz.secondPass = true; hz.dir = -hz.dir; hz.vx = -hz.vx * 1.1; setMissileHeight(hz, hz.plan[1]);
         hz.x -= hz.dir * Math.abs(hz.vx) * 700;                          // a moment's pause before it returns
       } else hz.done = true;
     }
@@ -1310,7 +1374,7 @@ function gameFrame(now, dt) {
     ctx.fillStyle = 'rgba(0,0,0,0.2)';                                  // the character's own shadow
     ctx.beginPath(); ctx.ellipse(k.hip.x, groundY + 4, charH * 0.16 / (1 + motion.lift / charH * 3), charH * 0.03, 0, 0, 7); ctx.fill();
     const mood = now - (G.hurtAt || -1e9) < 1000 ? 'pain' : now < (G.dangerUntil || 0) ? 'alarm' : 'neutral';
-    drawCharacter(ctx, k, selected(), now < G.safeUntil, mood, now);
+    drawCharacter(ctx, k, selected(), now < G.safeUntil, mood, now, G.state === 'play' || G.state === 'ending' ? LIVES - G.lives : 0);
     if (now < (G.headSplat || 0)) drawSplat(ctx, k.head.x + k.head.r * 0.25, k.head.y - k.head.r * 0.75, charH, clamp((G.headSplat - now) / 800, 0, 1), true);
   }
   if (G.villain) drawVillain(ctx, G.villain, charH, now);

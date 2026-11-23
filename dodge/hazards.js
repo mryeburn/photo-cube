@@ -29,7 +29,7 @@ export const HAZARDS = {
   ufo:      { lane:'ufo', scale:1.5, w:0.5, h:0.24, speed:0.5, draw:drawUfo },
   tomahawk: { lane:'air', scale:1.0, w:0.33, h:0.14, speed:2.2, arc:true, spins:true, shaped:true, draw:drawTomahawk },   // thrown, spinning end over end
   poop:     { lane:'sky', scale:1, w:0.07, h:0.09, speed:1.3, noPick:true, splat:true, draw:drawPoop },   // the eagle's (only from an eagle)
-  pogo:     { lane:'bounce', scale:1.25, w:0.3, h:0.7, speed:1.0, pogo:true, draw:drawPogo },   // a kid bouncing across on a pogo stick
+  pogo:     { lane:'bounce', scale:1.6, w:0.3, h:0.7, speed:1.0, pogo:true, draw:drawPogo },   // a kid bouncing across on a pogo stick
   boomerang:{ lane:'air', scale:1.3, w:0.34, h:0.12, speed:2.4, returns:true, shaped:true, draw:drawBoomerang },        // out and back, spinning flat
 };
 export const BY_LANE = { sky:[], ground:[], air:[], ufo:[], bounce:[] };
@@ -494,28 +494,29 @@ function drawPogo(c, s, t, hz) {
   // the kid: legs bent, feet on the pegs
   const skin = '#f1c7a1';
   const leg = (hip, knee, foot, far) => {
-    c.strokeStyle = far ? '#c9a07c' : skin; c.lineWidth = 0.028 * s; c.lineCap = 'round';
+    c.strokeStyle = far ? '#c9a07c' : skin; c.lineWidth = 0.036 * s; c.lineCap = 'round';
     c.beginPath(); c.moveTo(hip[0] * s, hip[1] * s); c.lineTo(knee[0] * s, knee[1] * s); c.lineTo(foot[0] * s, foot[1] * s); c.stroke();
-    c.fillStyle = far ? '#c92a2a' : '#e03131'; c.beginPath(); c.ellipse((foot[0] + 0.015) * s, (foot[1] + 0.004) * s, 0.028 * s, 0.014 * s, 0, 0, 7); c.fill();   // sneaker
+    c.fillStyle = far ? '#c92a2a' : '#e03131'; c.beginPath(); c.ellipse((foot[0] + 0.015) * s, (foot[1] + 0.004) * s, 0.032 * s, 0.016 * s, 0, 0, 7); c.fill();   // sneaker
     c.fillStyle = '#fff'; c.fillRect((foot[0] - 0.012) * s, (foot[1] + 0.012) * s, 0.055 * s, 0.006 * s);
   };
   const kneeOut = 0.05 + comp * 0.02;
   leg([-0.02, -0.33], [kneeOut - 0.01, -0.25], [0.005, -0.18], true);
   leg([-0.005, -0.33], [kneeOut + 0.005, -0.255], [0.02, -0.18], false);
   // shorts
-  c.fillStyle = '#1c7ed6'; c.beginPath(); c.moveTo(-0.045 * s, -0.37 * s); c.lineTo(0.03 * s, -0.37 * s); c.lineTo(0.04 * s, -0.3 * s); c.lineTo(-0.035 * s, -0.3 * s); c.closePath(); c.fill(); c.strokeStyle = INK; c.lineWidth = 1; c.stroke();
+  c.fillStyle = '#1c7ed6'; c.beginPath(); c.moveTo(-0.058 * s, -0.37 * s); c.lineTo(0.04 * s, -0.37 * s); c.lineTo(0.05 * s, -0.295 * s); c.lineTo(-0.045 * s, -0.295 * s); c.closePath(); c.fill(); c.strokeStyle = INK; c.lineWidth = 1; c.stroke();
   // striped T-shirt
-  const shirt = new Path2D(); shirt.moveTo(-0.045 * s, -0.37 * s); shirt.lineTo(0.032 * s, -0.37 * s); shirt.lineTo(0.035 * s, -0.49 * s); shirt.quadraticCurveTo(0.0, -0.515 * s, -0.04 * s, -0.495 * s); shirt.closePath();
+  const shirt = new Path2D(); shirt.moveTo(-0.06 * s, -0.37 * s); shirt.lineTo(0.042 * s, -0.37 * s); shirt.lineTo(0.045 * s, -0.49 * s); shirt.quadraticCurveTo(0.0, -0.52 * s, -0.055 * s, -0.495 * s); shirt.closePath();
   c.fillStyle = '#f8f9fa'; c.fill(shirt); c.save(); c.clip(shirt); c.fillStyle = '#e03131'; for (let i = 0; i < 6; i++) c.fillRect(-0.06 * s, (-0.5 + i * 0.024) * s, 0.12 * s, 0.011 * s); c.restore();
   c.strokeStyle = INK; c.lineWidth = 1; c.stroke(shirt);
   // arm reaching to the handlebar grip
-  c.strokeStyle = skin; c.lineWidth = 0.024 * s; c.lineCap = 'round';
+  c.strokeStyle = '#e03131'; c.lineWidth = 0.034 * s; c.lineCap = 'round'; c.beginPath(); c.moveTo(0.0, -0.485 * s); c.lineTo(0.02 * s, -0.47 * s); c.stroke();   // T-shirt sleeve
+  c.strokeStyle = skin; c.lineWidth = 0.03 * s; c.lineCap = 'round';
   c.beginPath(); c.moveTo(0.0, -0.48 * s); c.lineTo(0.05 * s, -0.45 * s); c.lineTo(0.045 * s, -0.43 * s); c.stroke();
   c.fillStyle = '#c92a2a'; c.fillRect(0.01 * s, -0.445 * s, 0.07 * s, 0.018 * s);                        // handlebar grip (over the hand)
   c.fillStyle = skin; c.beginPath(); c.arc(0.048 * s, -0.436 * s, 0.013 * s, 0, 7); c.fill();
   // neck and head
   c.fillStyle = skin; c.fillRect(-0.012 * s, -0.53 * s, 0.022 * s, 0.03 * s);
-  const hx = 0.0, hy = -0.575 * s, r = 0.052 * s;
+  const hx = 0.0, hy = -0.58 * s, r = 0.06 * s;
   const fg = c.createRadialGradient(hx + r * 0.3, hy - r * 0.2, 0, hx, hy, r * 1.1); fg.addColorStop(0, '#fbe0c8'); fg.addColorStop(1, '#d9a47e');
   c.fillStyle = fg; c.beginPath(); c.arc(hx, hy, r, 0, 7); c.fill(); c.strokeStyle = 'rgba(120,70,50,0.8)'; c.lineWidth = 1; c.stroke();
   // hair poking out of the helmet, flying up as he falls
