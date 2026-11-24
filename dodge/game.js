@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '3.6.1';
+const VERSION = '3.6.2';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -695,7 +695,7 @@ function startGame() {
   audio(); resize(); silenceAll();
   try { preloadVehicles(charH); } catch (e) { console.error(e); }
   stopVillain();
-  Object.assign(G, { squish:null, seen:{}, quake:null, stagger:null, sawEle:false, knock:null, carry:null, flat:false, lay:0, laySide:1, boostUntil:0, nextHealth:performance.now() + 60000, nextEnergy:performance.now() + 60000 + 30000 + Math.random() * 60000, sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, headSplat:0, stats:{ jumps:0, ducks:0, steps:0 },
+  Object.assign(G, { holdUntil:0, held:0, squish:null, seen:{}, quake:null, stagger:null, sawEle:false, knock:null, carry:null, flat:false, lay:0, laySide:1, boostUntil:0, nextHealth:performance.now() + 60000, nextEnergy:performance.now() + 60000 + 30000 + Math.random() * 60000, sawPogo:false, sawUfo:false, sawVillain:false, villain:null, state:'ready', lives:LIVES, score:0, hazards:[], pending:[], effects:[], tutorial:0, hurtAt:0, dangerUntil:0, headSplat:0, stats:{ jumps:0, ducks:0, steps:0 },
     phaseStart:performance.now(), lastTick:-1, bannerUntil:0, shake:0, lastSk:null });
   motion.airborne = false; motion.ducking = false;
   $('scoreNum').textContent = '0'; $('timeNum').textContent = '0:00'; renderHearts();
@@ -794,7 +794,7 @@ function spawn(lane, now, kind = null, aimed = false, dir = null) {
     if (d.swoops) swoopPath(hz, sp);
     if (d.returns) boomerangPath(hz, sp);
   }
-  hz.voice = audio() ? createVoice(actx, kind) : null;
+  hz.voice = SPAWN_QUIET ? null : (audio() ? createVoice(actx, kind) : null);
   G.hazards.push(hz);
   return hz;
 }
@@ -921,7 +921,8 @@ function spawnCombo(now) {
   const open = unlocked(elapsed(now)), pick = a => a[Math.floor(Math.random() * a.length)];
   const sides = open.filter(k => ['tire', 'pig', 'car', 'tomahawk', 'arrow', 'missile'].includes(k)), kinds = open.filter(k => ['anvil', 'weight', 'bomb'].includes(k));
   if (!sides.length || !kinds.length) return false;                   // only things already met
-  const sk = pick(sides), side = spawn(LANE_OF(sk), now, sk);
+  const sk = pick(sides), side = trySpawn(LANE_OF(sk), now, sk);
+  if (!side) return false;
   const arriveMs = Math.abs(side.x - charX) / Math.abs(side.vx);
   const kind = pick(kinds);
   const D = groundY - charH * 0.5 + sizeOf(kind).h * charH, v0 = (HAZARDS[kind].fallV0 ? HAZARDS[kind].fallV0 / 1000 : FALL_V0) * charH, g = fallGravity(kind, now);
@@ -960,6 +961,7 @@ const TEACH_TEXT = { charge:['Elephant!', 'Get down flat when it charges (carefu
 function hurt(now, hz) {
   if (now < G.safeUntil || G.state !== 'play') return;
   G.lives--; renderHearts(); G.safeUntil = now + SAFE_MS; G.shake = 12; G.hurtAt = now;
+  G.holdUntil = now + (hz.kind === 'anvil' ? 1400 : 1600) + 2000;      // nothing new arrives until he is back up plus two seconds
   if (hz.kind === 'anvil') {                                            // squashed flat like an accordion, then he pops back up
     G.squish = { at: now, x: charX }; hz.done = true; G.effects.push({ type:'anvilsit', born: now, dur: 1000 });
     noise(0.18, 0.5, 260); tone(700, 0.45, 'sawtooth', 0.07, 0.05, 160); tone(180, 0.35, 'sine', 0.25, 0.95, 620);   // crunch, wheeze... boing!
@@ -994,7 +996,8 @@ function updateUfo(hz, now, circles, dt) {
   const onScreen = hz.x > W * 0.08 && hz.x < W * 0.92;
   if (!hz.charge && hz.shots < hz.maxShots && onScreen && now >= hz.nextShot && G.lastSk) {
     hz.charge = { at: now }; hz.nextBeep = 0;
-    if (audio()) laserCharge(actx, UFO_CHARGE_MS / 1000);
+    if (clashes(hz, now)) { hz.charge = null; hz.nextShot = now + 500; }      // something else is due then: wait a moment
+    else if (audio()) laserCharge(actx, UFO_CHARGE_MS / 1000);
   }
   if (!hz.charge) return finishUfo(hz);
   const C = hz.charge, age = now - C.at;
@@ -1228,9 +1231,8 @@ function maybePoop(hz, now) {
     if (Math.abs(B.x - charX) < charH * 0.3 && B.y > groundY - charH * 1.4) { tE = t; break; }
   }
   if (Math.abs(tL - tE) < 850) return;
-  hz.pooped = true;
-  const p = spawn('sky', now, 'poop');
-  p.x = hz.x; p.y = hz.y + hz.h * 0.2; p.vx = vx; p.vy = 0; p.g = g;
+  const p = trySpawn('sky', now, 'poop', false, null, p => { p.x = hz.x; p.y = hz.y + hz.h * 0.2; p.vx = vx; p.vy = 0; p.g = g; });
+  if (p) hz.pooped = true;
 }
 
 // The charging elephant: runs in (thudding footsteps, dust), skids to a stop short of the player, rears up and
@@ -1269,15 +1271,113 @@ function updateElephant(hz, now, dt) {
 // so the player can land and jump again in between.
 const GROUP_GAP = 1900;                                         // ms between one reaching the player and the next
 function spawnLane(lane, now, kind = null) {
-  const first = spawn(lane, now, kind);
-  if (lane !== 'ground' || !first || !(HAZARDS[first.kind].vehicle || first.kind === 'pig')) return;
+  const first = trySpawn(lane, now, kind);
+  if (!first) return null;                                              // it would have clashed: try again shortly
+  if (lane !== 'ground' || !(HAZARDS[first.kind].vehicle || first.kind === 'pig')) return first;
   const t = elapsed(now), most = t < 60 ? 1 : t < 120 ? 2 : t < 180 ? 3 : 4, n = window.__dgGroup || 1 + Math.floor(Math.random() * most);
   const arrive = hz => Math.abs(hz.x - charX) / Math.abs(hz.vx), a1 = arrive(first);
   for (let i = 1; i < n; i++) {
-    const f = spawn('ground', now, first.kind === 'pig' ? 'pig' : 'car', false, first.dir);
-    const extra = a1 + i * GROUP_GAP - arrive(f);
-    if (extra > 0) f.x -= f.dir * extra * Math.abs(f.vx);                 // start further back, so it arrives in turn
+    const f = trySpawn('ground', now, first.kind === 'pig' ? 'pig' : 'car', false, first.dir, f => {
+      const extra = a1 + i * GROUP_GAP - arrive(f);
+      if (extra > 0) f.x -= f.dir * extra * Math.abs(f.vx);               // start further back, so it arrives in turn
+    });
+    if (!f) break;                                                      // a shorter line rather than an impossible one
   }
+  return first;
+}
+
+// ---------------------------------------------------------------- never an impossible situation
+// Every thing on its way makes a "demand": a time window when it reaches the man, and the move that beats it
+// (jump, duck, step aside, lie flat). Before anything new comes on screen its demands are checked against
+// everything already coming; if it would need a move that can't be combined with one already needed at about
+// the same time, it is held back. Step-aside plus jump or duck (a running jump, or stepping then ducking) is
+// allowed - the "two at once" combos are made of those - but never jump-and-duck, lying flat with anything,
+// two things to step away from at once, or more than two things arriving together.
+let SPAWN_QUIET = false;
+function trySpawn(lane, now, kind, aimed = false, dir = null, adjust = null) {
+  SPAWN_QUIET = true; let hz;
+  try { hz = spawn(lane, now, kind, aimed, dir); } finally { SPAWN_QUIET = false; }
+  if (!hz) return null;
+  if (adjust) adjust(hz);
+  if (clashes(hz, now)) { G.hazards.splice(G.hazards.indexOf(hz), 1); G.held = (G.held || 0) + 1; return null; }
+  hz.voice = audio() ? createVoice(actx, hz.kind) : null;
+  return hz;
+}
+function demandsOf(hz, now) {
+  if (hz.done || hz.flying || hz.hit || hz.lane === 'pack' || hz.carrying || hz.released) return [];
+  const ch = charH, d = HAZARDS[hz.kind], out = [];
+  const add = (t0, t1, move) => { if (t1 > now) out.push({ t0: Math.max(now, t0), t1, move }); };
+  if (hz.lane === 'charge') {                                           // the elephant: lie flat from its rearing until it has gone past
+    const rear = hz.state === 'run' ? now + Math.abs(hz.stopX - hz.x) / (Math.abs(hz.vx) || 1e-6) + 350 : hz.state === 'skid' ? now + 350 : now;
+    const pass = (hz.w + ch * 1.6) / (ch * 4.2 * speedUp(now) / 1000);
+    add(rear, rear + (hz.state === 'charge' ? 0 : 2250) + pass, 'flat'); return out;
+  }
+  if (hz.lane === 'ufo') { if (hz.charge) add(now, hz.charge.at + UFO_CHARGE_MS + 1500, 'step'); return out; }
+  if (hz.kind === 'frog') { add(now, now + 20000, 'frog'); return out; }
+  if (hz.path) {                                                        // eagle or boomerang: follow its path at the speed it flies
+    let t = now, open = null; const P = hz.path;
+    for (let i = hz.seg + 1; i < P.length; i++) {
+      const A = P[i - 1], B = P[i], len = B.d - A.d, slope = (B.y - A.y) / (len || 1);
+      let v = hz.speed;
+      if (hz.kind === 'eagle') v *= slope > 0 ? 1 + 0.8 * slope : 1 + 0.3 * slope; else v *= 0.4 + 0.6 * clamp(Math.abs(B.x - hz.turnX) / (W * 0.25), 0, 1);
+      t += len / v;
+      const up = groundY - B.y;
+      if (Math.abs(B.x - charX) < hz.w / 2 + ch * 0.2 && up < ch * 1.45) {
+        const move = up < ch * 0.5 ? 'jump' : 'duck';
+        if (open && open.move === move && t - open.t1 < 200) open.t1 = t; else { open = { t0: t, t1: t, move }; out.push(open); }
+      } else open = null;
+    }
+    for (const o of out) { o.t0 -= 150; o.t1 += 150; }
+    return out.filter(o => o.t1 > now);
+  }
+  if (hz.lane === 'sky') {                                              // falling: step aside if it is coming down on him
+    const D = groundY - (hz.y + hz.h / 2), g = hz.g || 0;
+    let tl, xl, r;
+    if (d.dives) {
+      // the diving plane is dangerous all along its diagonal dive (it can sweep through him) and where it crashes
+      const nose = hz.y + Math.sin(hz.angle) * hz.w * 0.45; tl = Math.max(0, groundY - nose) / (hz.vy || 1e-6);
+      let w0 = null, w1 = null;
+      for (let t = 0; t <= tl; t += 40) { const x = hz.x + hz.vx * t, y = hz.y + hz.vy * t;
+        if (Math.abs(x - charX) < d.hitR * ch + ch * 0.3 && y > groundY - ch * 1.3) { if (w0 == null) w0 = t; w1 = t; } }
+      xl = hz.x + hz.vx * tl + hz.dir * Math.cos(hz.angle) * hz.w * 0.4; r = ch * 0.45;
+      if (Math.abs(xl - charX) < r + ch * 0.15) { w0 = Math.min(w0 ?? tl, tl - 500); w1 = tl; }
+      if (w0 != null) add(now + w0 - 400, now + w1 + 200, 'step');
+      return out;
+    }
+    else { tl = g ? (-hz.vy + Math.sqrt(hz.vy * hz.vy + 2 * g * Math.max(0, D))) / g : Math.max(0, D) / (hz.vy || 1e-6); xl = hz.x + (hz.vx || 0) * tl; r = d.explodes ? hz.w * 1.5 : hz.w / 2 + ch * 0.2; }
+    if (Math.abs(xl - charX) < r + ch * 0.15) add(now + tl - (d.dives ? 900 : 650), now + tl + 150, 'step');
+    return out;
+  }
+  if (hz.lane === 'bounce') return out;                                 // (the retired pogo kid)
+  // along the ground (jump) or at head height (duck)
+  const sp = Math.abs(hz.vx); if (!sp) return out;
+  const ahead = (charX - hz.x) * Math.sign(hz.vx), half = hz.w / 2 + ch * 0.2, move = hz.lane === 'ground' ? 'jump' : 'duck';
+  if (ahead + half > 0) add(now + (ahead - half) / sp, now + (ahead + half) / sp, move);
+  if (d.twoPass && !hz.secondPass && hz.plan && hz.plan.length > 1) {   // the missile's way back
+    const exitX = hz.vx > 0 ? W + hz.w / 2 : -hz.w / 2, tExit = now + Math.abs(exitX - hz.x) / sp, sp2 = sp * 1.1, back = Math.abs(exitX - charX);
+    add(tExit + 700 + (back - half) / sp2, tExit + 700 + (back + half) / sp2, hz.plan[1] === 'H' ? 'duck' : 'jump');
+  }
+  return out;
+}
+const MIN_GAP = { 'duck|jump': 1000, 'jump|jump': 600, 'step|step': 900 };   // ms (a little margin over what is needed)
+function clashes(cand, now) {
+  const mine = demandsOf(cand, now);
+  if (!mine.length) return false;
+  const others = [];
+  for (const h of G.hazards) if (h !== cand) for (const dm of demandsOf(h, now)) others.push(dm);
+  for (const a of mine) {
+    let together = 0;
+    for (const b of others) {
+      const gap = Math.max(a.t0 - b.t1, b.t0 - a.t1);
+      if (a.move === 'flat' || b.move === 'flat') { if (gap < 1000) return true; continue; }
+      if (a.move === 'frog' || b.move === 'frog') continue;
+      if (gap < 750) together++;
+      const need = MIN_GAP[[a.move, b.move].sort().join('|')];
+      if (need != null && gap < need) return true;
+    }
+    if (together >= 2) return true;
+  }
+  return false;
 }
 // The eagle's talons catch the man: it carries him up into the sky, then drops him.
 function startCarry(hz, now) {
@@ -1637,19 +1737,23 @@ function gameFrame(now, dt) {
       if (motion.airborne && motion.up < 0.01) motion.airborne = false;
       if (!motion.ducking && motion.duck > 0.12) { motion.ducking = true; G.stats.ducks++; }
       if (motion.ducking && motion.duck < 0.05) motion.ducking = false;
-      if (now >= G.nextSpawn && !window.__dgNoAuto) {   // tests can switch off random spawning
+      if (now >= G.nextSpawn && now >= (G.holdUntil || 0) && !G.carry && !window.__dgNoAuto) {   // (tests can switch off random spawning)
         if (Math.random() < comboChance(now) && spawnCombo(now)) {
           G.nextSpawn = now + spawnGap(now) * 1.4;
         } else {
           const kind = nextKind();
-          spawnLane(LANE_OF(kind), now, kind);
-          if (!G.seen[kind]) { G.seen[kind] = true; if (TEACH[kind]) flash(TEACH[kind][0], TEACH[kind][1], 3000, now); }   // a banner the first time
-          G.nextSpawn = now + spawnGap(now);
+          if (!spawnLane(LANE_OF(kind), now, kind)) G.nextSpawn = now + 400;   // would clash: pick again shortly
+          else {
+            if (!G.seen[kind]) { G.seen[kind] = true; if (TEACH[kind]) flash(TEACH[kind][0], TEACH[kind][1], 3000, now); }   // a banner the first time
+            G.nextSpawn = now + spawnGap(now);
+          }
         }
       }
-      for (const p of G.pending) if (now >= p.at) { spawn(p.lane, now, p.kind, p.aimed); p.done = true; }
+      for (const p of G.pending) if (now >= p.at && now >= (G.holdUntil || 0) && !G.carry) {
+        if (trySpawn(p.lane, now, p.kind, p.aimed) || ++p.tries > 8) p.done = true; else p.at = now + 300;   // held back if it would clash
+      }
       G.pending = G.pending.filter(p => !p.done);
-      packsTick(now);
+      if (now >= (G.holdUntil || 0) && !G.carry) packsTick(now);
       updateHazards(now, dt, sk ? txK(sk, manOps(sk, now)) : null);
       updateVillain(now, dt); handlePunch(now);
       $('timeNum').textContent = fmt(now - G.start);
@@ -1894,4 +1998,4 @@ initVision()
 requestAnimationFrame(loop);
 
 // Hooks for automated testing.
-window.__dg = { G, B, motion, get flip() { return motion.flip; }, buildBody, nextLane: () => nextLane(), nextKind: () => nextKind(), spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed), spawnLane: (lane, kind) => spawnLane(lane, performance.now(), kind) };
+window.__dg = { G, B, motion, get flip() { return motion.flip; }, buildBody, nextLane: () => nextLane(), nextKind: () => nextKind(), spawnVillain: () => spawnVillain(performance.now()), get elapsed() { return elapsed(performance.now()); }, speed, get poseModel() { return poseModel; }, get lm() { return lm; }, get charX() { return charX; }, get screen() { return screen; }, spawn: (lane, kind, aimed) => spawn(lane, performance.now(), kind, aimed), spawnLane: (lane, kind) => spawnLane(lane, performance.now(), kind), demands: () => G.hazards.flatMap(h => demandsOf(h, performance.now()).map(d => ({ ...d, kind: h.kind }))) };
