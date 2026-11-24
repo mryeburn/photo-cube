@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '3.6.2';
+const VERSION = '3.6.3';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -961,9 +961,10 @@ const TEACH_TEXT = { charge:['Elephant!', 'Get down flat when it charges (carefu
 function hurt(now, hz) {
   if (now < G.safeUntil || G.state !== 'play') return;
   G.lives--; renderHearts(); G.safeUntil = now + SAFE_MS; G.shake = 12; G.hurtAt = now;
-  G.holdUntil = now + (hz.kind === 'anvil' ? 1400 : 1600) + 2000;      // nothing new arrives until he is back up plus two seconds
-  if (hz.kind === 'anvil') {                                            // squashed flat like an accordion, then he pops back up
+  G.holdUntil = now + (hz.kind === 'weight' ? 1400 : 1600) + 2000;      // nothing new arrives until he is back up plus two seconds
+  if (hz.kind === 'weight') {                                           // 50 tons: squashed flat like an accordion, then he pops back up
     G.squish = { at: now, x: charX }; hz.done = true; G.effects.push({ type:'anvilsit', born: now, dur: 1000 });
+    if (audio()) bigThud(actx, 1); G.quake = { at: now, len: 1200, amp: 18 };   // and the ground shakes as it lands on him
     noise(0.18, 0.5, 260); tone(700, 0.45, 'sawtooth', 0.07, 0.05, 160); tone(180, 0.35, 'sine', 0.25, 0.95, 620);   // crunch, wheeze... boing!
   } else G.knock = { at: now, side: Math.sign(charX - (hz.x ?? charX)) || 1 };   // knocked off his feet, away from what hit him
   G.nextHealth = Math.max(G.nextHealth || 0, now + 5000 + Math.random() * 20000);
@@ -1592,11 +1593,11 @@ function drawEffects(c, now) {
       c.strokeText(e.text, e.x, e.y - t * 40); c.fillText(e.text, e.x, e.y - t * 40); c.globalAlpha = 1;
     } else if (e.type === 'boom') {
       drawFireball(c, e, now);
-    } else if (e.type === 'anvilsit') {                                  // the anvil resting on the flattened man
+    } else if (e.type === 'anvilsit') {                                  // the 50-ton weight resting on the flattened man
       if (!G.squish) continue;
-      const t = now - e.born, sq = squishAmount(now), top = groundY - charH * 0.97 * (1 - 0.65 * sq), sz = sizeOf('anvil');
+      const t = now - e.born, sq = squishAmount(now), top = groundY - charH * 0.97 * (1 - 0.65 * sq), sz = sizeOf('weight');
       c.globalAlpha = t < 900 ? 1 : clamp(1 - (t - 900) / 100, 0, 1);
-      drawHazard(c, { kind:'anvil', x: G.squish.x, y: top - sz.h * charH / 2 + charH * 0.02, dir: 1, born: e.born, spin: 0 }, charH, now); c.globalAlpha = 1;
+      drawHazard(c, { kind:'weight', x: G.squish.x, y: top - sz.h * charH / 2 + charH * 0.02, dir: 1, born: e.born, spin: 0 }, charH, now); c.globalAlpha = 1;
     } else if (e.type === 'fizzle') {                                     // a missed pack bursting on the ground
       const q = (now - e.born) / e.dur;
       c.save(); c.globalAlpha = 1 - q;
