@@ -16,7 +16,7 @@ const JUMP_GAIN = 8;      // jump height boost: a 6 inch jump reaches full heigh
 const DUCK_GAIN = 1.6;    // and ducks 1.6x as low, so a modest duck is enough
 const MOVE_GAIN = 2.6;    // sideways steps are exaggerated so a step or two takes the character well clear
 const LIVES = 3;
-const VERSION = '3.6.3';
+const VERSION = '3.6.4';
 // The Android app serves the game from this private address; anywhere else it is the web (Chromebook) version.
 const EDITION = location.host === 'appassets.androidplatform.net' ? 'Android' : 'Chromebook / web';
 const SAFE_MS = 1600;     // no further hits for this long after being hit
@@ -783,13 +783,10 @@ function spawn(lane, now, kind = null, aimed = false, dir = null) {
       setMissileHeight(hz, hz.plan[0]);
     }
     hz.vx = hz.dir * sp; hz.vy = 0;
-    if (d.arc) {
-      // Thrown in a shallow arc: it leaves the thrower's hand a little above head height travelling almost
-      // level, and drops gently under gravity so it is at head height as it reaches the player, then keeps
-      // falling gently behind them. Ducking gets under it.
-      const T = Math.abs(hz.x - charX) / sp;                          // ms until it reaches the player
-      const yAt = groundY - charH * TOMAHAWK_AT, y0 = yAt - charH * 0.3;
-      hz.g = 2 * (yAt - y0) / (T * T); hz.y = y0; hz.vy = 0;
+    if (hz.kind === 'tomahawk') {
+      // Thrown flat and level at head height, spinning end over end, all the way across and off the far side
+      // (no arc: an arc drops to chest height for a player who moves away from it, and then can't be ducked).
+      hz.y = groundY - charH * TOMAHAWK_AT; hz.vy = 0; hz.g = 0;
     }
     if (d.swoops) swoopPath(hz, sp);
     if (d.returns) boomerangPath(hz, sp);

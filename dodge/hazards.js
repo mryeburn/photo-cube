@@ -29,7 +29,7 @@ export const HAZARDS = {
   missile:  { lane:'air', twoPass:true, scale:1.5, w:0.5, h:0.12, speed:3.2, draw:drawMissile },
   arrow:    { lane:'air', scale:1.3, w:0.52, h:0.07, speed:5.2,  draw:drawArrow },
   ufo:      { lane:'ufo', scale:1.5, w:0.5, h:0.24, speed:0.5, draw:drawUfo },
-  tomahawk: { lane:'air', scale:1.0, w:0.33, h:0.14, speed:2.2, arc:true, spins:true, shaped:true, draw:drawTomahawk },   // thrown, spinning end over end
+  tomahawk: { lane:'air', scale:1.0, w:0.33, h:0.14, speed:2.2, spins:true, shaped:true, draw:drawTomahawk },   // thrown level at head height, spinning end over end
   poop:     { lane:'sky', scale:1, w:0.07, h:0.09, speed:1.3, noPick:true, splat:true, draw:drawPoop },   // the eagle's (only from an eagle)
   pogo:     { lane:'bounce', scale:1.6, w:0.3, h:0.7, speed:1.0, pogo:true, draw:drawPogo },   // (retired: replaced by the frog)
   frog:     { lane:'bounce', scale:1, w:0.85, h:0.75, speed:1.0, frog:true, draw:drawFrog },   // a big frog hopping across in bursts
